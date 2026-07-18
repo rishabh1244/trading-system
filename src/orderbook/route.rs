@@ -2,7 +2,7 @@ use actix_web::{HttpResponse, Responder, post, web};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Order {
     userId: String,
     qty: u64,
@@ -60,6 +60,24 @@ async fn searchMatch(order: &Order, order_type: &str) -> i32 {
     remaining.max(0) as i32
 }
 
+impl OrderBook {
+    fn print(&self) {
+        let bids = self.bids.lock().unwrap();
+        let asks = self.asks.lock().unwrap();
+
+        println!("----- ORDER BOOK -----");
+        println!("BIDS:");
+        for order in bids.iter() {
+            println!("{:?}", order);
+        }
+
+        println!("ASKS:");
+        for order in asks.iter() {
+            println!("{:?}", order);
+        }
+        println!("----------------------");
+    }
+}
 async fn order_book_append(order_type: String, order: Order) {
     let book = if order_type == "bid" {
         &ORDER_BOOK.bids
@@ -85,6 +103,8 @@ pub async fn placeOrder(
     if remaining > 0 {
         order.qty = remaining as u64;
         order_book_append(query.order_type.clone(), order).await;
+        ORDER_BOOK.print();
+
         return HttpResponse::Ok().body("appended ");
     }
 
