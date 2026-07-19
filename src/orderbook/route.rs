@@ -19,7 +19,7 @@ static ORDER_BOOK: OrderBook = OrderBook {
     asks: Mutex::new(Vec::new()),
 };
 
-fn searchMatch(order: &Order, order_type: &str) -> i32 {
+fn search_match(order: &Order, order_type: &str) -> i32 {
     let opposite_book = if order_type == "bid" {
         &ORDER_BOOK.asks
     } else {
@@ -29,54 +29,35 @@ fn searchMatch(order: &Order, order_type: &str) -> i32 {
     let mut book = opposite_book.lock().unwrap();
     let mut remaining = order.qty as i64;
 
-    if order_type == "ask"{
-        let mut i = len(&ORDER_BOOK);
-        while i > 0 {
-            if remaining <= 0{
-                break ;
-            }
-
-            let price_match = if book[i].price <= order.price; 
-            if !price_match {
-            i += 1;
-            continue;
-        }
-
-        let match_qty = book[i].qty.min(remaining as u64);
-        remaining -= match_qty as i64;
-        book[i].qty -= match_qty;
-
-        if book[i].qty == 0 {
-            book.swap_remove(i);
-        } else {
-            i += 1;
-        }
-        }
-    }
-
+    let mut i = 0;
 
     while i < book.len() {
         if remaining <= 0 {
             break;
         }
 
+        // check whether prices are compatible
         let price_match = if order_type == "bid" {
+            // buyer is willing to pay >= seller's price
             book[i].price <= order.price
         } else {
+            // seller is willing to sell <= buyer's price
             book[i].price >= order.price
         };
 
         if !price_match {
-            i += 1;
-            continue;
+            // since the order book is sorted, nothing after this can match
+            break;
         }
 
         let match_qty = book[i].qty.min(remaining as u64);
+
         remaining -= match_qty as i64;
         book[i].qty -= match_qty;
 
+        // remove fully filled orders
         if book[i].qty == 0 {
-            book.swap_remove(i);
+            book.remove(i);
         } else {
             i += 1;
         }
