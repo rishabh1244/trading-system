@@ -127,7 +127,7 @@ pub async fn placeOrder(
     query: web::Query<PlaceOrderQuery>,
 ) -> impl Responder {
     let mut order = order.into_inner();
-    let remaining = searchMatch(&order, &query.order_type);
+    let remaining = search_match(&order, &query.order_type);
 
     if remaining > 0 {
         order.qty = remaining as u64;
