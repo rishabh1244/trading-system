@@ -1,4 +1,5 @@
 mod api_gateway;
+mod auth;
 mod orderbook;
 
 use api_gateway::api;
