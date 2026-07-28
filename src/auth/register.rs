@@ -41,6 +41,14 @@ pub async fn register_user(
     match result {
         Ok(row) => {
             let user_id: i32 = row.get("id");
+
+            let _ = sqlx::query(
+                "INSERT INTO balances (user_id, balance_btc, balance_inr) VALUES ($1, 0, 0)",
+            )
+            .bind(user_id)
+            .execute(pool)
+            .await;
+
             let token = generate_token(&req_body.username, user_id);
             HttpResponse::Ok().json(AuthResponseSuccess { token })
         }

@@ -5,5 +5,5 @@ CREATE TABLE orders (
     qty NUMERIC NOT NULL,
     price NUMERIC NOT NULL,
     dateadded TIMESTAMP NOT NULL DEFAULT NOW(),
-    status TEXT NOT NULL
+    status TEXT NOT NULL 
 );
