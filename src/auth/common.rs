@@ -1,7 +1,6 @@
 use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
-
 #[derive(Deserialize)]
 pub struct AuthData {
     pub username: String,
@@ -32,10 +31,16 @@ pub struct Claims {
 
 pub fn generate_token(username: &str) -> String {
     let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "my_secret_key".to_string());
+
     let exp = (Utc::now().timestamp() + 3600) as usize;
     let claims = Claims {
         username: username.to_string(),
         exp,
     };
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).unwrap()
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .unwrap()
 }

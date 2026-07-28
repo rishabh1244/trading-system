@@ -2216,6 +2216,7 @@ dependencies = [
  "actix-web",
  "argon2",
  "chrono",
+ "dotenvy",
  "jsonwebtoken",
  "serde",
  "serde_json",
