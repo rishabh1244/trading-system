@@ -7,7 +7,7 @@ use actix_web_httpauth::middleware::HttpAuthentication;
 const PORT: u16 = 8080;
 
 pub async fn api_gateway() -> std::io::Result<()> {
-    let database_url = "postgres://localhost:5432/trading_engine".to_string();
+    let database_url = std::env::var("DATABASE_URL").expect("database url not found");
 
     let pool = db::init_pool(&database_url)
         .await
