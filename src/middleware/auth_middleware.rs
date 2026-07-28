@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct Claims {
     pub username: String,
     pub exp: usize,
+    pub id: i32,
 }
 
 pub async fn validator(
