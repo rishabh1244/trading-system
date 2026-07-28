@@ -10,6 +10,7 @@ pub struct AuthData {
 #[derive(Clone, sqlx::FromRow)]
 pub struct User {
     pub username: String,
+    pub id: i32,
     pub password_hash: String,
 }
 
@@ -27,14 +28,16 @@ pub struct AuthResponseFailure {
 pub struct Claims {
     pub username: String,
     pub exp: usize,
+    pub id: i32,
 }
 
-pub fn generate_token(username: &str) -> String {
+pub fn generate_token(username: &str, user_id: i32) -> String {
     let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "my_secret_key".to_string());
 
     let exp = (Utc::now().timestamp() + 3600) as usize;
     let claims = Claims {
         username: username.to_string(),
+        id: user_id,
         exp,
     };
     encode(

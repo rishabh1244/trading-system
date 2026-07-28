@@ -1,5 +1,5 @@
 use actix_web::{HttpResponse, Responder, post, web};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 use argon2::{
     Argon2,
@@ -9,7 +9,10 @@ use argon2::{
 use super::common::{AuthData, AuthResponseFailure, AuthResponseSuccess, generate_token};
 
 #[post("/api/register")]
-pub async fn register_user(pool: web::Data<Option<PgPool>>, req_body: web::Json<AuthData>) -> impl Responder {
+pub async fn register_user(
+    pool: web::Data<Option<PgPool>>,
+    req_body: web::Json<AuthData>,
+) -> impl Responder {
     let pool = match pool.get_ref() {
         Some(p) => p,
         None => {
@@ -25,15 +28,20 @@ pub async fn register_user(pool: web::Data<Option<PgPool>>, req_body: web::Json<
         .unwrap()
         .to_string();
 
-    let result = sqlx::query("INSERT INTO users (username, password_hash) VALUES ($1, $2)")
-        .bind(&req_body.username)
-        .bind(&password_hash)
-        .execute(pool)
-        .await;
+    let result = sqlx::query(
+        "INSERT INTO users (username, password_hash)
+     VALUES ($1, $2)
+     RETURNING id",
+    )
+    .bind(&req_body.username)
+    .bind(&password_hash)
+    .fetch_one(pool)
+    .await;
 
     match result {
-        Ok(_) => {
-            let token = generate_token(&req_body.username);
+        Ok(row) => {
+            let user_id: i32 = row.get("id");
+            let token = generate_token(&req_body.username, user_id);
             HttpResponse::Ok().json(AuthResponseSuccess { token })
         }
         Err(e) => HttpResponse::InternalServerError().json(AuthResponseFailure {

@@ -1,4 +1,4 @@
-use actix_web::{HttpResponse, HttpMessage, post, web, HttpRequest};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse, post, web};
 use serde::Deserialize;
 use sqlx::PgPool;
 
@@ -26,6 +26,6 @@ pub async fn fetch_order(
 ) -> HttpResponse {
     let exts = req.extensions();
     let claims = exts.get::<Claims>().unwrap();
-    println!("username :{}", claims.username);
+    println!("id :{}", claims.id);
     HttpResponse::Ok().finish()
 }
