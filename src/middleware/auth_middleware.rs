@@ -1,6 +1,5 @@
 use actix_web::{Error, HttpMessage, dev::ServiceRequest};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
-use dotenvy::dotenv;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
