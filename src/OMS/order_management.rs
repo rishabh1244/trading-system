@@ -30,8 +30,36 @@ pub async fn fetch_order(
     // check if the order can be placed
     // check if the user has the required assets
 
-    // if req_body.size == SELL check if qty >= balance_btc
+    // if req_body.side == SELL check if qty >= balance_btc
     // if req_body.side == BUY check if qty >= balance_inr
+
+    if req_body.side == "SELL" {
+        let balance_btc: i32 =
+            sqlx::query_scalar("SELECT balance_btc from orders where user_id=$1")
+                .bind(claims.id)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
+
+        if balance_btc <= req_body.qty {
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!("Insufficient BTC balance"));
+        }
+    }
+
+    if req_body.side == "BUY" {
+        let balance_btc: i32 =
+            sqlx::query_scalar("SELECT balance_inr from orders where user_id=$1")
+                .bind(claims.id)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
+
+        if balance_btc <= req_body.qty {
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!("Insufficient INR balance"));
+        }
+    }
 
     let result = sqlx::query(
         "INSERT INTO orders (user_id, side, qty, price, status)
