@@ -27,6 +27,15 @@ pub async fn fetch_order(
     let exts = req.extensions();
     let claims = exts.get::<Claims>().unwrap();
 
+    if (req_body.qty <= 0) {
+        return HttpResponse::InternalServerError()
+            .json(serde_json::json!(" Qty of asset must be valid "));
+    }
+    if (req_body.price <= 0) {
+        return HttpResponse::InternalServerError()
+            .json(serde_json::json!("price of asset must be valid "));
+    }
+
     // check if the order can be placed
     // check if the user has the required assets
 
