@@ -11,6 +11,11 @@ pub enum OrderResponse {
     Approved { order_id: i32, credited: f64 },
     Rejected { reason: String },
 }
+pub enum EngineError {
+    Database(sqlx::Error),
+    InsufficientBalance,
+    InvalidOrder,
+}
 pub struct OrderElement {
     qty: i32,
     price: i32,
@@ -32,14 +37,76 @@ impl OrderBook {
         }
     }
 
-    pub async fn engine(&mut self, pool: &PgPool, match_data: Order) -> Result<OrderResponse, Err> {
+    pub async fn engine(
+        &mut self,
+        pool: &PgPool,
+        match_data: Order,
+    ) -> Result<OrderResponse, EngineError> {
         // Updates the database if the order is not present in the orderbook
 
-        // check if the order is present in the orderbooka
+        // check if the order is present in the orderbook
 
+        if match_data.side == "BUY" {
+            // checks asks
+            let n = self.asks.len();
+            let mut match_found = false;
+            for i in 0..n {
+                if self.asks[i].price == match_data.price {
+                    // price found . check how much qty can be traded
+                    if self.asks[i].qty >= match_data.qty {
+                        // everything can be traded so no need to store anything
+
+                        // genearte trade and send the req to Trading Engine which
+                        // will update the database , and after that update the orderboook
+
+                        // let res = trade_engine(match_data);
+                        // if res == success {
+
+                        self.asks[i].qty = self.asks[i].qty - match_data.qty;
+                        // }
+                        match_found = true;
+                        break;
+                    } else {
+                        // partiall match found where qty_found < qty wanted
+                        // update the order book as per that requirement ;
+                        self.asks[i].qty = self.asks[i].qty - match_data.qty;
+                        match_data.qty;
+                    }
+                }
+            }
+            if !match_found {
+                // no match found store data in self.bids
+                self.bids.push(match_data);
+            }
+        } else if match_data.side == "SELL" {
+            // checks bids
+
+            let n = self.bids.len();
+            let mut match_found = false;
+            for i in 0..n {
+                if self.bids[i].price == match_data.price {
+                    // price found . check how much qty can be traded
+                    if self.bids[i].qty >= match_data.qty {
+                        // everything can be traded so no need to store anything
+
+                        // genearte trade and send the req to Trading Engine which
+                        // will update the database , and after that update the orderboook
+                        match_found = true;
+                    }
+                }
+            }
+            if match_found == false {
+                // no match found store data in self.bids
+                self.asks.push(match_data);
+            }
+        }
+
+        /*
+         *to be done by trading engine
+         *
         let result = sqlx::query(
             "INSERT INTO orders (user_id, side, qty, price, status)
-     VALUES ($1, $2, $3, $4, $5)",
+        VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(&match_data.user_id)
         .bind(&match_data.side)
@@ -48,5 +115,11 @@ impl OrderBook {
         .bind("pending")
         .execute(pool)
         .await;
+        };
+        */
+        Ok(OrderResponse::Stored {
+            order_id: 42,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
     }
 }
