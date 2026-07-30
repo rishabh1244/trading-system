@@ -1,6 +1,7 @@
 use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
+
 #[derive(Deserialize)]
 pub struct AuthData {
     pub username: String,
