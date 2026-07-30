@@ -2,8 +2,6 @@ use crate::OMS::order_management::fetch_order;
 use crate::api_gateway::db;
 use crate::auth;
 use crate::middleware::auth_middleware::validator;
-use crate::orderbook;
-
 use actix_web::{App, HttpServer, web};
 use actix_web_httpauth::middleware::HttpAuthentication;
 const PORT: u16 = 8080;
@@ -20,8 +18,6 @@ pub async fn api_gateway() -> std::io::Result<()> {
         let auth = HttpAuthentication::bearer(validator);
         App::new()
             .app_data(web::Data::new(Some(pool.clone())))
-            .service(orderbook::route::hello)
-            .service(orderbook::route::placeOrder)
             .service(auth::login::login_user)
             .service(auth::register::register_user)
             .service(web::scope("").wrap(auth).service(fetch_order))
