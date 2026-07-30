@@ -76,6 +76,7 @@ impl OrderBook {
                         // notify self.asks[i].user_id about the trade made
 
                         self.bids.push(match_data);
+                        match_data.qty;
                     }
                 }
             }
