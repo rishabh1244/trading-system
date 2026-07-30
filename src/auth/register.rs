@@ -6,7 +6,7 @@ use argon2::{
     password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
 };
 
-use super::common::{AuthData, AuthResponseFailure, AuthResponseSuccess, generate_token};
+use crate::domain::common::{AuthData, AuthResponseFailure, AuthResponseSuccess, generate_token};
 
 #[post("/api/register")]
 pub async fn register_user(

@@ -1,20 +1,16 @@
+use crate::domain::order::{Order, OrderRequest};
+use crate::matching_engine::orderbook::engine;
+use crate::middleware::auth_middleware::Claims;
+
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, post, web};
 use serde::Deserialize;
 use sqlx::PgPool;
 
-use crate::middleware::auth_middleware::Claims;
-
-#[derive(Deserialize)]
-pub struct OrderData {
-    side: String,
-    qty: i32,
-    price: i32,
-}
 #[post("/api/order")]
 pub async fn fetch_order(
     req: HttpRequest,
     pool: web::Data<Option<PgPool>>,
-    req_body: web::Json<OrderData>,
+    req_body: web::Json<OrderRequest>,
 ) -> HttpResponse {
     let pool = match pool.get_ref() {
         Some(p) => p,
@@ -75,17 +71,7 @@ pub async fn fetch_order(
         }
     }
 
-    let result = sqlx::query(
-        "INSERT INTO orders (user_id, side, qty, price, status)
-     VALUES ($1, $2, $3, $4, $5)",
-    )
-    .bind(claims.id)
-    .bind(&req_body.side)
-    .bind(&req_body.qty)
-    .bind(&req_body.price)
-    .bind("pending")
-    .execute(pool)
-    .await;
+    // call the matching engine
 
     match result {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({"status": "order placed"})),

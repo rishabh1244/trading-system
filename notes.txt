@@ -1,0 +1,8 @@
+Progress notes 
+
+OMS 
+- Recives requires 
+- Does JWT verification 
+- Checks available balance for order and qty 
+- redirects request to the matching engine 
+
