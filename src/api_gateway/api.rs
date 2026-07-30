@@ -1,13 +1,20 @@
 use crate::OMS::order_management::fetch_order;
 use crate::api_gateway::db;
 use crate::auth;
+use crate::matching_engine::orderbook::OrderBook;
 use crate::middleware::auth_middleware::validator;
+
+use std::sync::{Arc, Mutex};
+
 use actix_web::{App, HttpServer, web};
 use actix_web_httpauth::middleware::HttpAuthentication;
+
 const PORT: u16 = 8080;
 
 pub async fn api_gateway() -> std::io::Result<()> {
     let database_url = std::env::var("DATABASE_URL").expect("database url not found");
+
+    let orderbook = Arc::new(Mutex::new(OrderBook::new()));
 
     let pool = db::init_pool(&database_url)
         .await
@@ -18,6 +25,7 @@ pub async fn api_gateway() -> std::io::Result<()> {
         let auth = HttpAuthentication::bearer(validator);
         App::new()
             .app_data(web::Data::new(Some(pool.clone())))
+            .app_data(web::Data::new(orderbook.clone()))
             .service(auth::login::login_user)
             .service(auth::register::register_user)
             .service(web::scope("").wrap(auth).service(fetch_order))

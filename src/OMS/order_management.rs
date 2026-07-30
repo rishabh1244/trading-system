@@ -1,14 +1,25 @@
 use crate::domain::order::{Order, OrderRequest};
-use crate::matching_engine::orderbook::engine;
+use crate::matching_engine::orderbook::OrderBook;
 use crate::middleware::auth_middleware::Claims;
 
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, post, web};
 use serde::Deserialize;
 use sqlx::PgPool;
+use std::sync::{Arc, Mutex};
+
+pub fn ConvertToOrder(req: &OrderRequest, user_id: i32) -> Order {
+    Order {
+        user_id,
+        side: req.side.clone(),
+        qty: req.qty,
+        price: req.price,
+    }
+}
 
 #[post("/api/order")]
 pub async fn fetch_order(
     req: HttpRequest,
+    orderbook: web::Data<Arc<Mutex<OrderBook>>>,
     pool: web::Data<Option<PgPool>>,
     req_body: web::Json<OrderRequest>,
 ) -> HttpResponse {
@@ -23,11 +34,11 @@ pub async fn fetch_order(
     let exts = req.extensions();
     let claims = exts.get::<Claims>().unwrap();
 
-    if (req_body.qty <= 0) {
+    if req_body.qty <= 0 {
         return HttpResponse::InternalServerError()
             .json(serde_json::json!(" Qty of asset must be valid "));
     }
-    if (req_body.price <= 0) {
+    if req_body.price <= 0 {
         return HttpResponse::InternalServerError()
             .json(serde_json::json!("price of asset must be valid "));
     }
@@ -72,8 +83,12 @@ pub async fn fetch_order(
     }
 
     // call the matching engine
+    let order_convert = ConvertToOrder(&req_body, claims.id);
+    let mut ob = orderbook.lock().unwrap();
 
-    match result {
+    let ord_response = ob.engine(pool, order_convert);
+
+    match ord_response {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({"status": "order placed"})),
         Err(e) => HttpResponse::InternalServerError()
             .json(serde_json::json!({"fail_reason": e.to_string()})),
