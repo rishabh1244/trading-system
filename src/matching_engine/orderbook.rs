@@ -46,70 +46,32 @@ impl OrderBook {
 
         // check if the order is present in the orderbook
 
+        let response;
         if match_data.side == "BUY" {
             // checks asks
             let n = self.asks.len();
-            let mut match_found = false;
+
             for i in 0..n {
-                if self.asks[i].price == match_data.price {
-                    // price found . check how much qty can be traded
-                    if self.asks[i].qty >= match_data.qty {
-                        // everything can be traded so no need to store anything
-
-                        // genearte trade and send the req to Trading Engine which
-                        // will update the database , and after that update the orderboook
-
-                        // let res = trade_engine(match_data);
-                        // if res == success {
-
-                        self.asks[i].qty = self.asks[i].qty - match_data.qty;
-                        // }
-                        match_found = true;
-                        break;
-                    } else {
-                        // partiall match found where qty_found < qty wanted
-                        // update the order book as per that requirement ;
-                        // call the trade_engine function
-
-                        match_data.qty = match_data.qty - self.asks[i].qty;
-                        self.asks[i].qty = 0;
-                        // notify self.asks[i].user_id about the trade made
-
-                        self.bids.push(match_data);
-                    }
+                if match_data.price >= self.asks[i].price {
+                    match_data.qty = purchase(i, match_data);
                 }
             }
-            if !match_found {
-                // no match found store data in self.bids
-                self.bids.push(match_data);
+
+            if match_data.qty > 0 {
+                response = append_orderbook(match_data);
             }
         } else if match_data.side == "SELL" {
-            // checks bids
-
             let n = self.bids.len();
-            let mut match_found = false;
+
             for i in 0..n {
-                if self.bids[i].price == match_data.price {
-                    // price found . check how much qty can be traded
-                    if self.bids[i].qty >= match_data.qty {
-                        // everything can be traded so no need to store anything
-
-                        // genearte trade and send the req to Trading Engine which
-                        // will update the database , and after that update the orderboook
-                        self.bids[i].qty = self.bids[i].qty - match_data.qty;
-
-                        match_found = true;
-                        break;
-                    } else {
-                        self.asks[i].qty = self.asks[i].qty - match_data.qty;
-                        match_data.qty;
-                    }
+                if match_data.price <= self.bids[i].price {
+                    match_data.qty = sell(i, match_data);
                 }
             }
-            if match_found == false {
-                // no match found store data in self.bids
-                self.asks.push(match_data);
+            if match_data.qty > 0 {
+                response = append_orderbook(match_data)
             }
+            response = "satisfied";
         }
 
         /*
