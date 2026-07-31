@@ -29,7 +29,7 @@ pub struct OrderElement {
 
 pub struct OrderBook {
     bids: Vec<Order>, // Limit BUY orders (people waiting to buy)
-    asks: Vec<Order>, // Limit SELL orders (people waiting to sell)
+    asks: Vec<Order>, // Limit SELL orders (people waiting to orderbook_sell)
 }
 
 impl OrderBook {
@@ -40,13 +40,13 @@ impl OrderBook {
         }
     }
 
-    fn sell(&mut self, index: usize, mut match_data: &Order) -> i32 {
+    fn orderbook_sell(&mut self, index: usize, mut match_data: &Order) -> i32 {
         // make the transaction in the orderbook and call the trading engine to db update
         // puchase means removing BTC from asks
         //
         // bids = [100,10]
         // match_data = [120,7]
-        let qty = cmp::min(match_data.qty, self.asks[index].qty);
+        let qty = cmp::min(match_data.qty, self.bids[index].qty);
 
         let price = self.bids[index].price * qty; // price we buying for 
         self.bids[index].qty -= qty;
@@ -56,7 +56,7 @@ impl OrderBook {
         return qty;
     }
 
-    fn purchase(&mut self, index: usize, match_data: &Order) -> i32 {
+    fn orderbook_buy(&mut self, index: usize, match_data: &Order) -> i32 {
         // make the transaction in the orderbook and call the trading engine to db update
         // puchase means removing BTC from asks
         //
@@ -70,6 +70,20 @@ impl OrderBook {
         // TODO (Trading Engine side): update balance of user => balance_prev  - price ;
 
         return qty;
+    }
+
+    fn append_orderbook(&mut self, order_type: &str, match_data: &Order) {
+        // appends the unfinished order to the orderbook
+        // udpates the database after that
+        // TODO -> further optimise the orderbook to stay sorted for easy searching
+
+        // currently just adding a dumb append
+        if order_type == "ASK".to_string() {
+            self.asks.push(match_data.clone());
+        }
+        if order_type == "BID".to_string() {
+            self.bids.push(match_data.clone());
+        }
     }
 
     pub async fn engine(
@@ -89,25 +103,24 @@ impl OrderBook {
 
             for i in 0..n {
                 if match_data.price >= self.asks[i].price {
-                    match_data.qty -= self.purchase(i, &match_data);
+                    match_data.qty -= self.orderbook_buy(i, &match_data);
                 }
             }
 
             if match_data.qty > 0 {
-                response = append_orderbook(match_data);
+                append_orderbook("BID", match_data);
             }
         } else if match_data.side == "SELL" {
             let n = self.bids.len();
 
             for i in 0..n {
                 if match_data.price <= self.bids[i].price {
-                    match_data.qty -= self.sell(i, &match_data);
+                    match_data.qty -= self.orderbook_sell(i, &match_data);
                 }
             }
             if match_data.qty > 0 {
-                response = append_orderbook(match_data)
+                append_orderbook("ASK", match_data)
             }
-            response = "satisfied";
         }
 
         /*
