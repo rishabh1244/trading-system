@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::cmp;
 use std::sync::Mutex;
+use std::task::Wake;
 
 //response to be returned
 #[derive(Serialize)]
@@ -39,7 +40,23 @@ impl OrderBook {
         }
     }
 
-    async fn purchase(&mut self, index: usize, match_data: Order) {
+    fn sell(&mut self, index: usize, mut match_data: &Order) -> i32 {
+        // make the transaction in the orderbook and call the trading engine to db update
+        // puchase means removing BTC from asks
+        //
+        // bids = [100,10]
+        // match_data = [120,7]
+        let qty = cmp::min(match_data.qty, self.asks[index].qty);
+
+        let price = self.bids[index].price * qty; // price we buying for 
+        self.bids[index].qty -= qty;
+
+        // TODO (Trading Engine side): update balance of user => balance_prev  - price ;
+
+        return qty;
+    }
+
+    fn purchase(&mut self, index: usize, match_data: &Order) -> i32 {
         // make the transaction in the orderbook and call the trading engine to db update
         // puchase means removing BTC from asks
         //
@@ -49,6 +66,10 @@ impl OrderBook {
 
         let price = self.asks[index].price * qty; // price we buying for 
         self.asks[index].qty -= qty;
+
+        // TODO (Trading Engine side): update balance of user => balance_prev  - price ;
+
+        return qty;
     }
 
     pub async fn engine(
@@ -61,13 +82,14 @@ impl OrderBook {
         // check if the order is present in the orderbook
 
         let response;
+
         if match_data.side == "BUY" {
             // checks asks
             let n = self.asks.len();
 
             for i in 0..n {
                 if match_data.price >= self.asks[i].price {
-                    match_data.qty = self.purchase(i, match_data);
+                    match_data.qty -= self.purchase(i, &match_data);
                 }
             }
 
@@ -79,7 +101,7 @@ impl OrderBook {
 
             for i in 0..n {
                 if match_data.price <= self.bids[i].price {
-                    match_data.qty = sell(i, match_data);
+                    match_data.qty -= self.sell(i, &match_data);
                 }
             }
             if match_data.qty > 0 {
