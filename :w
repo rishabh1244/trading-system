@@ -39,7 +39,7 @@ impl OrderBook {
         }
     }
 
-    async fn purchase(&mut self, index: usize, match_data: Order) {
+    async fn purchase(&mut self, index: i32, match_data: Order) {
         // make the transaction in the orderbook and call the trading engine to db update
         // puchase means removing BTC from asks
         //
