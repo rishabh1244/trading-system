@@ -1,4 +1,6 @@
 use crate::domain::order::Order;
+use crate::domain::trades::Trade;
+
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::cmp;
@@ -145,6 +147,7 @@ impl OrderBook {
         .await;
         };
         */
+        // should return a Trade type
         Ok(OrderResponse::Stored {
             order_id: 42,
             timestamp: chrono::Utc::now().to_rfc3339(),
