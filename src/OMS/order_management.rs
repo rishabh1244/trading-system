@@ -86,11 +86,19 @@ pub async fn fetch_order(
     let order_convert = ConvertToOrder(&req_body, claims.id);
     let mut ob = orderbook.lock().unwrap();
 
-    let ord_response = ob.engine(pool, order_convert);
+    let ord_response = ob.engine(pool, order_convert).await;
 
     match ord_response {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({"status": "order placed"})),
         Err(e) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"fail_reason": e.to_string()})),
+            .json(serde_json::json!({"fail_reason": format!("{:?}", e)})),
     }
+}
+
+#[post("/api/orderbook")]
+pub async fn display_orderbook(
+    orderbook: web::Data<Arc<Mutex<OrderBook>>>,
+) -> HttpResponse {
+    let ob = orderbook.lock().unwrap();
+    HttpResponse::Ok().json(serde_json::json!({"orderbook": ob.display_orderbook()}))
 }

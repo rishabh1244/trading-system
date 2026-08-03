@@ -6,13 +6,14 @@ use std::sync::Mutex;
 use std::task::Wake;
 
 //response to be returned
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 
 pub enum OrderResponse {
     Stored { order_id: i32, timestamp: String },
     Approved { order_id: i32, credited: f64 },
     Rejected { reason: String },
 }
+#[derive(Debug)]
 pub enum EngineError {
     Database(sqlx::Error),
     InsufficientBalance,
@@ -86,16 +87,21 @@ impl OrderBook {
         }
     }
 
+    pub fn display_orderbook(&self) -> serde_json::Value {
+        serde_json::json!({
+            "asks": self.asks,
+            "bids": self.bids,
+        })
+    }
+
     pub async fn engine(
         &mut self,
         pool: &PgPool,
-        match_data: Order,
+        mut match_data: Order,
     ) -> Result<OrderResponse, EngineError> {
         // Updates the database if the order is not present in the orderbook
 
         // check if the order is present in the orderbook
-
-        let response;
 
         if match_data.side == "BUY" {
             // checks asks
@@ -108,7 +114,7 @@ impl OrderBook {
             }
 
             if match_data.qty > 0 {
-                append_orderbook("BID", match_data);
+                self.append_orderbook("BID", &match_data);
             }
         } else if match_data.side == "SELL" {
             let n = self.bids.len();
@@ -119,7 +125,7 @@ impl OrderBook {
                 }
             }
             if match_data.qty > 0 {
-                append_orderbook("ASK", match_data)
+                self.append_orderbook("ASK", &match_data)
             }
         }
 
