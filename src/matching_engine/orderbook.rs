@@ -96,11 +96,7 @@ impl OrderBook {
         })
     }
 
-    pub async fn engine(
-        &mut self,
-        pool: &PgPool,
-        mut match_data: Order,
-    ) -> Result<OrderResponse, EngineError> {
+    pub async fn engine(&mut self, pool: &PgPool, mut match_data: Order) -> Trade {
         // Updates the database if the order is not present in the orderbook
 
         // check if the order is present in the orderbook
