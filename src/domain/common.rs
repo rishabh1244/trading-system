@@ -15,6 +15,13 @@ pub struct User {
     pub password_hash: String,
 }
 
+#[derive(Clone, Debug, sqlx::FromRow, Serialize, Deserialize)]
+pub struct Balances {
+    pub user_id: i32,
+    pub balance_btc: f64,
+    pub balance_inr: f64,
+}
+
 #[derive(Serialize)]
 pub struct AuthResponseSuccess {
     pub token: String,
