@@ -7,7 +7,6 @@ pub struct AuthData {
     pub username: String,
     pub password: String,
 }
-
 #[derive(Clone, sqlx::FromRow)]
 pub struct User {
     pub username: String,

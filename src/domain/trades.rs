@@ -2,9 +2,8 @@ use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Trade {
-    pub trade_id: i32,
     pub trader_id: i32,
     pub seller_id: i32,
 
@@ -12,7 +11,7 @@ pub struct Trade {
     pub price: f32,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct TradeList {
     pub trades: Vec<Trade>,
 }

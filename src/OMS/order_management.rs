@@ -1,9 +1,9 @@
 use crate::domain::order::{Order, OrderRequest};
 use crate::matching_engine::orderbook::OrderBook;
 use crate::middleware::auth_middleware::Claims;
-
+use crate::trading_engine::update_balance;
+//
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, post, web};
-use serde::Deserialize;
 use sqlx::PgPool;
 use std::sync::{Arc, Mutex};
 
@@ -86,19 +86,16 @@ pub async fn fetch_order(
     let order_convert = ConvertToOrder(&req_body, claims.id);
     let mut ob = orderbook.lock().unwrap();
 
-    let ord_response = ob.engine(pool, order_convert).await;
-
-    match ord_response {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({"status": "order placed"})),
+    let trade_list = ob.engine(pool, order_convert).await;
+    // ord_response Returns a TradeList
+    match update_balance(claims.id, trade_list, pool).await {
+        Ok(balances) => HttpResponse::Ok().json(balances),
         Err(e) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"fail_reason": format!("{:?}", e)})),
+            .json(serde_json::json!({"fail_reason": e.to_string()})),
     }
 }
-
 #[post("/api/orderbook")]
-pub async fn display_orderbook(
-    orderbook: web::Data<Arc<Mutex<OrderBook>>>,
-) -> HttpResponse {
+pub async fn display_orderbook(orderbook: web::Data<Arc<Mutex<OrderBook>>>) -> HttpResponse {
     let ob = orderbook.lock().unwrap();
     HttpResponse::Ok().json(serde_json::json!({"orderbook": ob.display_orderbook()}))
 }

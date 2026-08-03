@@ -1,5 +1,5 @@
 use crate::domain::order::Order;
-use crate::domain::trades::Trade;
+use crate::domain::trades::{Trade, TradeList};
 
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -43,7 +43,7 @@ impl OrderBook {
         }
     }
 
-    fn orderbook_sell(&mut self, index: usize, mut match_data: &Order) -> i32 {
+    fn orderbook_sell(&mut self, index: usize, match_data: &mut Order, trades: &mut TradeList) {
         // make the transaction in the orderbook and call the trading engine to db update
         // puchase means removing BTC from asks
         //
@@ -51,15 +51,21 @@ impl OrderBook {
         // match_data = [120,7]
         let qty = cmp::min(match_data.qty, self.bids[index].qty);
 
-        let price = self.bids[index].price * qty; // price we buying for 
+        let price = self.bids[index].price; // price we selling for
         self.bids[index].qty -= qty;
 
         // TODO (Trading Engine side): update balance of user => balance_prev  - price ;
+        match_data.qty -= qty;
 
-        return qty;
+        trades.trades.push(Trade {
+            trader_id: self.bids[index].user_id,
+            seller_id: match_data.user_id,
+            qty: qty as f32,
+            price: price as f32,
+        });
     }
 
-    fn orderbook_buy(&mut self, index: usize, match_data: &Order) -> i32 {
+    fn orderbook_buy(&mut self, index: usize, match_data: &mut Order, trades: &mut TradeList) {
         // make the transaction in the orderbook and call the trading engine to db update
         // puchase means removing BTC from asks
         //
@@ -67,12 +73,18 @@ impl OrderBook {
         //match_data = [120,7]
         let qty = cmp::min(match_data.qty, self.asks[index].qty);
 
-        let price = self.asks[index].price * qty; // price we buying for 
+        let price = self.asks[index].price; // price we buying for
         self.asks[index].qty -= qty;
 
         // TODO (Trading Engine side): update balance of user => balance_prev  - price ;
+        match_data.qty -= qty;
 
-        return qty;
+        trades.trades.push(Trade {
+            trader_id: match_data.user_id,
+            seller_id: self.asks[index].user_id,
+            qty: qty as f32,
+            price: price as f32,
+        });
     }
 
     fn append_orderbook(&mut self, order_type: &str, match_data: &Order) {
@@ -96,9 +108,9 @@ impl OrderBook {
         })
     }
 
-    pub async fn engine(&mut self, pool: &PgPool, mut match_data: Order) -> Trade {
+    pub async fn engine(&mut self, pool: &PgPool, mut match_data: Order) -> TradeList {
         // Updates the database if the order is not present in the orderbook
-
+        let mut trades = TradeList { trades: Vec::new() };
         // check if the order is present in the orderbook
 
         if match_data.side == "BUY" {
@@ -107,7 +119,7 @@ impl OrderBook {
 
             for i in 0..n {
                 if match_data.price >= self.asks[i].price {
-                    match_data.qty -= self.orderbook_buy(i, &match_data);
+                    self.orderbook_buy(i, &mut match_data, &mut trades);
                 }
             }
 
@@ -119,7 +131,7 @@ impl OrderBook {
 
             for i in 0..n {
                 if match_data.price <= self.bids[i].price {
-                    match_data.qty -= self.orderbook_sell(i, &match_data);
+                    self.orderbook_sell(i, &mut match_data, &mut trades);
                 }
             }
             if match_data.qty > 0 {
@@ -144,9 +156,6 @@ impl OrderBook {
         };
         */
         // should return a Trade type
-        Ok(OrderResponse::Stored {
-            order_id: 42,
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        })
+        trades
     }
 }
