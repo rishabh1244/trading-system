@@ -7,7 +7,7 @@ pub struct OrderRequest {
     pub price: i32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Order {
     pub user_id: i32,
     pub side: String,
