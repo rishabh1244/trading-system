@@ -99,6 +99,7 @@ impl OrderBook {
         if order_type == "BID".to_string() {
             self.bids.push(match_data.clone());
         }
+        // call the update_database() method
     }
 
     pub fn display_orderbook(&self) -> serde_json::Value {
@@ -124,6 +125,8 @@ impl OrderBook {
             }
 
             if match_data.qty > 0 {
+                // this should also reduce the remaining balance from the user and store it to the
+                // database
                 self.append_orderbook("BID", &match_data);
             }
         } else if match_data.side == "SELL" {

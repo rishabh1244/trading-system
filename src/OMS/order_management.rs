@@ -1,7 +1,7 @@
 use crate::domain::order::{Order, OrderRequest};
 use crate::matching_engine::orderbook::OrderBook;
 use crate::middleware::auth_middleware::Claims;
-use crate::trading_engine::update_balance;
+use crate::trading_engine::engine::update_balance;
 //
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, post, web};
 use sqlx::PgPool;

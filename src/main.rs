@@ -5,7 +5,6 @@ mod domain;
 mod matching_engine;
 mod middleware;
 mod trading_engine;
-
 use api_gateway::api;
 use dotenvy::dotenv;
 
