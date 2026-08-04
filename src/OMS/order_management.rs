@@ -1,7 +1,7 @@
 use crate::domain::order::{Order, OrderRequest};
 use crate::matching_engine::orderbook::OrderBook;
 use crate::middleware::auth_middleware::Claims;
-use crate::trading_engine::engine::update_balance;
+use crate::trading_engine::engine::settle_trades;
 //
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, post, web};
 use sqlx::PgPool;
@@ -88,7 +88,7 @@ pub async fn fetch_order(
 
     let trade_list = ob.engine(pool, order_convert).await;
     // ord_response Returns a TradeList
-    match update_balance(claims.id, trade_list, pool).await {
+    match settle_trades(claims.id, trade_list, pool).await {
         Ok(balances) => HttpResponse::Ok().json(balances),
         Err(e) => HttpResponse::InternalServerError()
             .json(serde_json::json!({"fail_reason": e.to_string()})),

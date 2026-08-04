@@ -1,5 +1,6 @@
 use crate::domain::order::Order;
 use crate::domain::trades::{Trade, TradeList};
+use crate::trading_engine::engine::update_balance;
 
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -87,7 +88,7 @@ impl OrderBook {
         });
     }
 
-    fn append_orderbook(&mut self, order_type: &str, match_data: &Order) {
+    async fn append_orderbook(&mut self, pool: &PgPool, order_type: &str, match_data: &Order) {
         // appends the unfinished order to the orderbook
         // udpates the database after that
         // TODO -> further optimise the orderbook to stay sorted for easy searching
@@ -95,9 +96,15 @@ impl OrderBook {
         // currently just adding a dumb append
         if order_type == "ASK".to_string() {
             self.asks.push(match_data.clone());
+            // debit BTC from the seller placing the order
+            let _ = update_balance(match_data.user_id, "SELL", match_data.qty, match_data.price, pool)
+                .await;
         }
         if order_type == "BID".to_string() {
             self.bids.push(match_data.clone());
+            // debit INR from the buyer placing the order
+            let _ = update_balance(match_data.user_id, "BUY", match_data.qty, match_data.price, pool)
+                .await;
         }
         // call the update_database() method
     }
@@ -127,7 +134,7 @@ impl OrderBook {
             if match_data.qty > 0 {
                 // this should also reduce the remaining balance from the user and store it to the
                 // database
-                self.append_orderbook("BID", &match_data);
+                self.append_orderbook(pool, "BID", &match_data).await;
             }
         } else if match_data.side == "SELL" {
             let n = self.bids.len();
@@ -138,7 +145,7 @@ impl OrderBook {
                 }
             }
             if match_data.qty > 0 {
-                self.append_orderbook("ASK", &match_data)
+                self.append_orderbook(pool, "ASK", &match_data).await
             }
         }
 
