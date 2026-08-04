@@ -27,15 +27,24 @@ pub async fn settle_trades(
     }
 
     for trade in trade.trades.iter() {
-        // buyer: receives BTC, pays INR
-        let buyer = balances.get_mut(&trade.trader_id).unwrap();
-        buyer.balance_btc += trade.qty as f64;
-        buyer.balance_inr -= (trade.qty * trade.price) as f64;
+        let qty = trade.qty as f64;
+        let value = (trade.qty * trade.price) as f64;
 
-        // seller: gives up BTC, receives INR
+        // buyer receives BTC, and pays INR if the aggressor is the buyer
+        let buyer = balances.get_mut(&trade.trader_id).unwrap();
+        buyer.balance_btc += qty;
+        if trade.trader_id == user_id {
+            buyer.balance_inr -= value;
+        }
+        drop(buyer);
+
+        // seller receives INR, and gives up BTC if the aggressor is the seller
         let seller = balances.get_mut(&trade.seller_id).unwrap();
-        seller.balance_btc -= trade.qty as f64;
-        seller.balance_inr += (trade.qty * trade.price) as f64;
+        seller.balance_inr += value;
+        if trade.seller_id == user_id {
+            seller.balance_btc -= qty;
+        }
+        drop(seller);
     }
 
     for (id, balance) in balances.iter() {
