@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct Trade {
-    pub trader_id: i32,
+    pub buyer_id: i32,
     pub seller_id: i32,
 
     pub qty: f32,
