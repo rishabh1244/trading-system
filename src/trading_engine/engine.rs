@@ -11,7 +11,7 @@ pub async fn settle_trades(
     let mut involved: HashSet<i32> = HashSet::new();
     involved.insert(user_id);
     for trade in trade.trades.iter() {
-        involved.insert(trade.trader_id);
+        involved.insert(trade.buyer_id);
         involved.insert(trade.seller_id);
     }
 
@@ -31,9 +31,9 @@ pub async fn settle_trades(
         let value = (trade.qty * trade.price) as f64;
 
         // buyer receives BTC, and pays INR if the aggressor is the buyer
-        let buyer = balances.get_mut(&trade.trader_id).unwrap();
+        let buyer = balances.get_mut(&trade.buyer_id).unwrap();
         buyer.balance_btc += qty;
-        if trade.trader_id == user_id {
+        if trade.buyer_id == user_id {
             buyer.balance_inr -= value;
         }
         drop(buyer);
@@ -45,6 +45,14 @@ pub async fn settle_trades(
             seller.balance_btc -= qty;
         }
         drop(seller);
+        // updates trades to datbase
+        sqlx::query("INSERT INTO trades (buyer_id , seller_id ,qty , price)")
+            .bind(trade.buyer_id)
+            .bind(trade.seller_id)
+            .bind(trade.qty)
+            .bind(trade.price)
+            .execute(pool)
+            .await?;
     }
 
     for (id, balance) in balances.iter() {
@@ -92,9 +100,5 @@ pub async fn update_balance(
 }
 
 // remaining functionality :-
-//
-//  - update the balances of user's who have sold there assets (currently only updating the user who
-//  have sent the request for buy/sell)
-//  - update the remaining balance of the user after all the possible trades are fullfiled
-//  - presist the orderbook in the database
-//
+
+//  - presist the trades / orderbook in the database

@@ -3,7 +3,7 @@ use crate::matching_engine::orderbook::OrderBook;
 use crate::middleware::auth_middleware::Claims;
 use crate::trading_engine::engine::settle_trades;
 //
-use actix_web::{HttpMessage, HttpRequest, HttpResponse, post, web};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, post, web};
 use sqlx::PgPool;
 use std::sync::{Arc, Mutex};
 
@@ -94,7 +94,7 @@ pub async fn fetch_order(
             .json(serde_json::json!({"fail_reason": e.to_string()})),
     }
 }
-#[post("/api/orderbook")]
+#[get("/api/orderbook")]
 pub async fn display_orderbook(orderbook: web::Data<Arc<Mutex<OrderBook>>>) -> HttpResponse {
     let ob = orderbook.lock().unwrap();
     HttpResponse::Ok().json(serde_json::json!({"orderbook": ob.display_orderbook()}))
