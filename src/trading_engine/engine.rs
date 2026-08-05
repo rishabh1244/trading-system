@@ -49,7 +49,7 @@ pub async fn settle_trades(
         }
         drop(seller);
         // updates trades to datbase
-        sqlx::query("INSERT INTO trades (buyer_id , seller_id ,qty , price)")
+        sqlx::query("INSERT INTO trades (buyer_id , seller_id ,qty , price) VALUES ($1, $2, $3, $4)")
             .bind(trade.buyer_id)
             .bind(trade.seller_id)
             .bind(trade.qty)
