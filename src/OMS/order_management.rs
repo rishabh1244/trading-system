@@ -56,7 +56,7 @@ pub async fn fetch_order(
                 .fetch_one(pool)
                 .await
                 .unwrap_or(0.0);
-        let required_btc = req_body.qty as f64 * req_body.price as f64;
+        let required_btc = req_body.qty as f64;
 
         if balance_btc < required_btc {
             return HttpResponse::InternalServerError().json(serde_json::json!(format!(
