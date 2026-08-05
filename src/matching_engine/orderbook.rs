@@ -1,12 +1,8 @@
 use crate::domain::order::Order;
 use crate::domain::trades::{Trade, TradeList};
-use crate::trading_engine::engine::update_balance;
 
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::cmp;
-use std::sync::Mutex;
-use std::task::Wake;
 
 //response to be returned
 #[derive(Serialize, Debug)]
@@ -30,6 +26,12 @@ pub struct OrderElement {
 }
 
 //static ORDER_BOOK: LazyLock<Mutex<Vec<OrderElement>>> =    LazyLock::new(|| Mutex::new(Vec::new()));
+/// how do i presist this orderbook ? append_orderbook() should call a db fn .. ig
+/// Result of a single pass through the matching engine.
+pub struct EngineResult {
+    pub trades: TradeList,
+    pub appends: Vec<Order>,
+}
 
 pub struct OrderBook {
     bids: Vec<Order>, // Limit BUY orders (people waiting to buy)
@@ -59,7 +61,7 @@ impl OrderBook {
         match_data.qty -= qty;
 
         trades.trades.push(Trade {
-            trader_id: self.bids[index].user_id,
+            buyer_id: self.bids[index].user_id,
             seller_id: match_data.user_id,
             qty: qty as f32,
             price: price as f32,
@@ -81,32 +83,11 @@ impl OrderBook {
         match_data.qty -= qty;
 
         trades.trades.push(Trade {
-            trader_id: match_data.user_id,
+            buyer_id: match_data.user_id,
             seller_id: self.asks[index].user_id,
             qty: qty as f32,
             price: price as f32,
         });
-    }
-
-    async fn append_orderbook(&mut self, pool: &PgPool, order_type: &str, match_data: &Order) {
-        // appends the unfinished order to the orderbook
-        // udpates the database after that
-        // TODO -> further optimise the orderbook to stay sorted for easy searching
-
-        // currently just adding a dumb append
-        if order_type == "ASK".to_string() {
-            self.asks.push(match_data.clone());
-            // debit BTC from the seller placing the order
-            let _ = update_balance(match_data.user_id, "SELL", match_data.qty, match_data.price, pool)
-                .await;
-        }
-        if order_type == "BID".to_string() {
-            self.bids.push(match_data.clone());
-            // debit INR from the buyer placing the order
-            let _ = update_balance(match_data.user_id, "BUY", match_data.qty, match_data.price, pool)
-                .await;
-        }
-        // call the update_database() method
     }
 
     pub fn display_orderbook(&self) -> serde_json::Value {
@@ -116,10 +97,10 @@ impl OrderBook {
         })
     }
 
-    pub async fn engine(&mut self, pool: &PgPool, mut match_data: Order) -> TradeList {
-        // Updates the database if the order is not present in the orderbook
+    pub async fn engine(&mut self, mut match_data: Order) -> EngineResult {
+        // attempt to match the incoming order against the resting orderbook
         let mut trades = TradeList { trades: Vec::new() };
-        // check if the order is present in the orderbook
+        let mut appends: Vec<Order> = Vec::new();
 
         if match_data.side == "BUY" {
             // checks asks
@@ -132,9 +113,9 @@ impl OrderBook {
             }
 
             if match_data.qty > 0 {
-                // this should also reduce the remaining balance from the user and store it to the
-                // database
-                self.append_orderbook(pool, "BID", &match_data).await;
+                // leftover order becomes a resting bid
+                self.bids.push(match_data.clone());
+                appends.push(match_data);
             }
         } else if match_data.side == "SELL" {
             let n = self.bids.len();
@@ -145,27 +126,12 @@ impl OrderBook {
                 }
             }
             if match_data.qty > 0 {
-                self.append_orderbook(pool, "ASK", &match_data).await
+                // leftover order becomes a resting ask
+                self.asks.push(match_data.clone());
+                appends.push(match_data);
             }
         }
 
-        /*
-         *to be done by trading engine
-         *
-        let result = sqlx::query(
-            "INSERT INTO orders (user_id, side, qty, price, status)
-        VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(&match_data.user_id)
-        .bind(&match_data.side)
-        .bind(&match_data.qty)
-        .bind(&match_data.price)
-        .bind("pending")
-        .execute(pool)
-        .await;
-        };
-        */
-        // should return a Trade type
-        trades
+        EngineResult { trades, appends }
     }
 }

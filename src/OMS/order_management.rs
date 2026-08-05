@@ -86,9 +86,9 @@ pub async fn fetch_order(
     let order_convert = ConvertToOrder(&req_body, claims.id);
     let mut ob = orderbook.lock().unwrap();
 
-    let trade_list = ob.engine(pool, order_convert).await;
-    // ord_response Returns a TradeList
-    match settle_trades(claims.id, trade_list, pool).await {
+    let result = ob.engine(order_convert).await;
+    // ord_response Returns a EngineResult
+    match settle_trades(claims.id, result.trades, &result.appends, pool).await {
         Ok(balances) => HttpResponse::Ok().json(balances),
         Err(e) => HttpResponse::InternalServerError()
             .json(serde_json::json!({"fail_reason": e.to_string()})),

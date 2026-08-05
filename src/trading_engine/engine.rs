@@ -1,11 +1,14 @@
 use crate::domain::common::Balances;
+use crate::domain::order::Order;
 use crate::domain::trades::TradeList;
+use crate::trading_engine::orderbook::sync_orderbook;
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 
 pub async fn settle_trades(
     user_id: i32,
     trade: TradeList,
+    appends: &[Order],
     pool: &PgPool,
 ) -> Result<Balances, sqlx::Error> {
     let mut involved: HashSet<i32> = HashSet::new();
@@ -64,6 +67,9 @@ pub async fn settle_trades(
             .await?;
     }
 
+    // persist any remaining (unfilled) orders into the database orderbook
+    sync_orderbook(pool, appends).await?;
+
     Ok(balances[&user_id].clone())
 }
 
@@ -98,7 +104,3 @@ pub async fn update_balance(
 
     Ok(balance)
 }
-
-// remaining functionality :-
-
-//  - presist the trades / orderbook in the database
