@@ -1,8 +1,18 @@
 use crate::domain::order::Order;
 use crate::domain::trades::{Trade, TradeList};
+use sqlx::PgPool;
 
 use serde::{Deserialize, Serialize};
 use std::cmp;
+
+#[derive(sqlx::FromRow)]
+struct PendingOrderRow {
+    order_id: i32,
+    user_id: i32,
+    side: String,
+    qty: i32,
+    price: i32,
+}
 
 //response to be returned
 #[derive(Serialize, Debug)]
@@ -45,6 +55,37 @@ impl OrderBook {
             bids: Vec::new(),
             asks: Vec::new(),
         }
+    }
+
+    /// Reloads all resting (status = pending) orders from the database
+    /// back into the in-memory book. Called at server startup so the
+    /// book survives restarts.
+    pub async fn load_from_db(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        let rows = sqlx::query_as::<_, PendingOrderRow>(
+            "SELECT order_id, user_id, side, qty::int4, price::int4
+             FROM orders
+             WHERE status = 'pending'
+             ORDER BY order_id",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        for row in rows {
+            let order = Order {
+                order_id: Some(row.order_id),
+                user_id: row.user_id,
+                side: row.side.to_uppercase(),
+                qty: row.qty,
+                price: row.price,
+                status: "pending".to_string(),
+            };
+            if order.side == "BUY" {
+                self.bids.push(order);
+            } else {
+                self.asks.push(order);
+            }
+        }
+        Ok(())
     }
 
     fn orderbook_sell(

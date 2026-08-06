@@ -20,6 +20,14 @@ pub async fn api_gateway() -> std::io::Result<()> {
         .await
         .expect("db connection failed");
 
+    // reload resting orders from the database back into the in-memory orderbook
+    {
+        let mut ob = orderbook.lock().unwrap();
+        if let Err(e) = ob.load_from_db(&pool).await {
+            eprintln!("failed to load resting orders from db: {e}");
+        }
+    }
+
     println!("Trading engine running on http://127.0.0.1:{PORT}");
     HttpServer::new(move || {
         let auth = HttpAuthentication::bearer(validator);
