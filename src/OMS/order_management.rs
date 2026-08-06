@@ -9,10 +9,12 @@ use std::sync::{Arc, Mutex};
 
 pub fn ConvertToOrder(req: &OrderRequest, user_id: i32) -> Order {
     Order {
+        order_id: None,
         user_id,
         side: req.side.clone(),
         qty: req.qty,
         price: req.price,
+        status: "pending".to_string(),
     }
 }
 
@@ -82,14 +84,20 @@ pub async fn fetch_order(
         }
     }
 
-    // call the matching engine
+// call the matching engine
     let order_convert = ConvertToOrder(&req_body, claims.id);
     let mut ob = orderbook.lock().unwrap();
 
     let result = ob.engine(order_convert).await;
     // ord_response Returns a EngineResult
-    match settle_trades(claims.id, result.trades, &result.appends, pool).await {
-        Ok(balances) => HttpResponse::Ok().json(balances),
+    match settle_trades(claims.id, result.trades, result.appends, result.fulfilled_ids, pool).await {
+        Ok((balances, new_order_id)) => {
+            // stamp the freshly inserted DB order id onto the resting order in memory
+            if let Some(id) = new_order_id {
+                ob.set_last_resting_id(&req_body.side, id);
+            }
+            HttpResponse::Ok().json(balances)
+        }
         Err(e) => HttpResponse::InternalServerError()
             .json(serde_json::json!({"fail_reason": e.to_string()})),
     }
