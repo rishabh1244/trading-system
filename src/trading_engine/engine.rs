@@ -8,9 +8,10 @@ use std::collections::{HashMap, HashSet};
 pub async fn settle_trades(
     user_id: i32,
     trade: TradeList,
-    appends: &[Order],
+    appends: Option<Order>,
+    fulfilled_ids: Vec<i32>,
     pool: &PgPool,
-) -> Result<Balances, sqlx::Error> {
+) -> Result<(Balances, Option<i32>), sqlx::Error> {
     let mut involved: HashSet<i32> = HashSet::new();
     involved.insert(user_id);
     for trade in trade.trades.iter() {
@@ -49,13 +50,15 @@ pub async fn settle_trades(
         }
         drop(seller);
         // updates trades to datbase
-        sqlx::query("INSERT INTO trades (buyer_id , seller_id ,qty , price) VALUES ($1, $2, $3, $4)")
-            .bind(trade.buyer_id)
-            .bind(trade.seller_id)
-            .bind(trade.qty)
-            .bind(trade.price)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "INSERT INTO trades (buyer_id , seller_id ,qty , price) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(trade.buyer_id)
+        .bind(trade.seller_id)
+        .bind(trade.qty)
+        .bind(trade.price)
+        .execute(pool)
+        .await?;
     }
 
     for (id, balance) in balances.iter() {
@@ -67,10 +70,21 @@ pub async fn settle_trades(
             .await?;
     }
 
-    // persist any remaining (unfilled) orders into the database orderbook
-    sync_orderbook(pool, appends).await?;
+    // mark resting orders that were fully matched as fulfilled
+    if !fulfilled_ids.is_empty() {
+        sqlx::query("UPDATE orders SET status='fulfilled' WHERE order_id = ANY($1)")
+            .bind(&fulfilled_ids)
+            .execute(pool)
+            .await?;
+    }
 
-    Ok(balances[&user_id].clone())
+    // persist any remaining (unfilled) order into the database orderbook
+    let mut appended_order_id = None;
+    if let Some(order) = appends {
+        appended_order_id = Some(sync_orderbook(pool, &order).await?);
+    }
+
+    Ok((balances[&user_id].clone(), appended_order_id))
 }
 
 pub async fn update_balance(
@@ -80,6 +94,7 @@ pub async fn update_balance(
     price: i32,
     pool: &PgPool,
 ) -> Result<Balances, sqlx::Error> {
+    // updates the balance of users as per each new Order in the Orderbook is added
     let mut balance: Balances = sqlx::query_as::<_, Balances>(
         "SELECT user_id, balance_btc::float8, balance_inr::float8 from balances where user_id=$1",
     )
