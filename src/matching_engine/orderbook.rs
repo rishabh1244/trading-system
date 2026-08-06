@@ -30,7 +30,8 @@ pub struct OrderElement {
 /// Result of a single pass through the matching engine.
 pub struct EngineResult {
     pub trades: TradeList,
-    pub appends: Vec<Order>,
+    pub appends: Option<Order>,
+    pub fulfilled_ids: Vec<i32>,
 }
 
 pub struct OrderBook {
@@ -46,7 +47,13 @@ impl OrderBook {
         }
     }
 
-    fn orderbook_sell(&mut self, index: usize, match_data: &mut Order, trades: &mut TradeList) {
+    fn orderbook_sell(
+        &mut self,
+        index: usize,
+        match_data: &mut Order,
+        trades: &mut TradeList,
+        fulfilled_ids: &mut Vec<i32>,
+    ) {
         // make the transaction in the orderbook and call the trading engine to db update
         // puchase means removing BTC from asks
         //
@@ -56,6 +63,12 @@ impl OrderBook {
 
         let price = self.bids[index].price; // price we selling for
         self.bids[index].qty -= qty;
+        if self.bids[index].qty == 0 {
+            self.bids[index].status = "fulfilled".to_string();
+            if let Some(id) = self.bids[index].order_id {
+                fulfilled_ids.push(id);
+            }
+        }
 
         // TODO (Trading Engine side): update balance of user => balance_prev  - price ;
         match_data.qty -= qty;
@@ -68,7 +81,13 @@ impl OrderBook {
         });
     }
 
-    fn orderbook_buy(&mut self, index: usize, match_data: &mut Order, trades: &mut TradeList) {
+    fn orderbook_buy(
+        &mut self,
+        index: usize,
+        match_data: &mut Order,
+        trades: &mut TradeList,
+        fulfilled_ids: &mut Vec<i32>,
+    ) {
         // make the transaction in the orderbook and call the trading engine to db update
         // puchase means removing BTC from asks
         //
@@ -78,6 +97,12 @@ impl OrderBook {
 
         let price = self.asks[index].price; // price we buying for
         self.asks[index].qty -= qty;
+        if self.asks[index].qty == 0 {
+            self.asks[index].status = "fulfilled".to_string();
+            if let Some(id) = self.asks[index].order_id {
+                fulfilled_ids.push(id);
+            }
+        }
 
         // TODO (Trading Engine side): update balance of user => balance_prev  - price ;
         match_data.qty -= qty;
@@ -97,41 +122,68 @@ impl OrderBook {
         })
     }
 
+    pub fn set_last_resting_id(&mut self, side: &str, order_id: i32) {
+        match side {
+            "BUY" => {
+                if let Some(o) = self.bids.last_mut() {
+                    o.order_id = Some(order_id);
+                }
+            }
+            "SELL" => {
+                if let Some(o) = self.asks.last_mut() {
+                    o.order_id = Some(order_id);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub async fn engine(&mut self, mut match_data: Order) -> EngineResult {
         // attempt to match the incoming order against the resting orderbook
         let mut trades = TradeList { trades: Vec::new() };
-        let mut appends: Vec<Order> = Vec::new();
+        let mut appends: Option<Order> = None;
+        let mut fulfilled_ids: Vec<i32> = Vec::new();
 
         if match_data.side == "BUY" {
             // checks asks
             let n = self.asks.len();
 
             for i in 0..n {
+                if self.asks[i].qty <= 0 {
+                    continue;
+                }
                 if match_data.price >= self.asks[i].price {
-                    self.orderbook_buy(i, &mut match_data, &mut trades);
+                    self.orderbook_buy(i, &mut match_data, &mut trades, &mut fulfilled_ids);
                 }
             }
 
             if match_data.qty > 0 {
                 // leftover order becomes a resting bid
                 self.bids.push(match_data.clone());
-                appends.push(match_data);
+                appends = Some(match_data);
             }
         } else if match_data.side == "SELL" {
             let n = self.bids.len();
 
             for i in 0..n {
+                if self.bids[i].qty <= 0 {
+                    continue;
+                }
                 if match_data.price <= self.bids[i].price {
-                    self.orderbook_sell(i, &mut match_data, &mut trades);
+                    self.orderbook_sell(i, &mut match_data, &mut trades, &mut fulfilled_ids);
                 }
             }
             if match_data.qty > 0 {
                 // leftover order becomes a resting ask
                 self.asks.push(match_data.clone());
-                appends.push(match_data);
+                appends = Some(match_data);
             }
         }
 
-        EngineResult { trades, appends }
+        EngineResult {
+            trades,
+            appends,
+            fulfilled_ids,
+        }
     }
 }
