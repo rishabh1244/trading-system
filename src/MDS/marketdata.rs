@@ -1,9 +1,6 @@
 use crate::domain::market::MarketData;
 use crate::domain::trades::Trade;
 
-use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
-use std::cmp;
 /*
  this service maintains
          best bid
@@ -21,8 +18,8 @@ impl MarketData {
         }
     }
 
-    pub fn udpate_service(&mut self, latest_trade: Trade) {
-        self.last_price = latestTrade.price;
+    pub fn on_trade(&mut self, trade: &Trade) {
+        self.last_price = trade.price;
         self.last_updated = chrono::Utc::now();
     }
 }

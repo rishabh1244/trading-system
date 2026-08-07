@@ -2,7 +2,6 @@ use crate::domain::order::Order;
 use crate::domain::trades::{Trade, TradeList};
 use sqlx::PgPool;
 
-use serde::{Deserialize, Serialize};
 use std::cmp;
 
 #[derive(sqlx::FromRow)]
@@ -12,27 +11,6 @@ struct PendingOrderRow {
     side: String,
     qty: i32,
     price: i32,
-}
-
-//response to be returned
-#[derive(Serialize, Debug)]
-
-pub enum OrderResponse {
-    Stored { order_id: i32, timestamp: String },
-    Approved { order_id: i32, credited: f64 },
-    Rejected { reason: String },
-}
-#[derive(Debug)]
-pub enum EngineError {
-    Database(sqlx::Error),
-    InsufficientBalance,
-    InvalidOrder,
-}
-pub struct OrderElement {
-    qty: i32,
-    price: i32,
-    side: i32,
-    order_id: i32,
 }
 
 //static ORDER_BOOK: LazyLock<Mutex<Vec<OrderElement>>> =    LazyLock::new(|| Mutex::new(Vec::new()));
@@ -117,8 +95,8 @@ impl OrderBook {
         trades.trades.push(Trade {
             buyer_id: self.bids[index].user_id,
             seller_id: match_data.user_id,
-            qty: qty as f32,
-            price: price as f32,
+            qty: qty as f64,
+            price: price as f64,
         });
     }
 
@@ -151,8 +129,8 @@ impl OrderBook {
         trades.trades.push(Trade {
             buyer_id: match_data.user_id,
             seller_id: self.asks[index].user_id,
-            qty: qty as f32,
-            price: price as f32,
+            qty: qty as f64,
+            price: price as f64,
         });
     }
 

@@ -1,3 +1,4 @@
+use crate::domain::market::MarketData;
 use crate::domain::order::{Order, OrderRequest};
 use crate::matching_engine::orderbook::OrderBook;
 use crate::middleware::auth_middleware::Claims;
@@ -22,6 +23,7 @@ pub fn ConvertToOrder(req: &OrderRequest, user_id: i32) -> Order {
 pub async fn fetch_order(
     req: HttpRequest,
     orderbook: web::Data<Arc<Mutex<OrderBook>>>,
+    market_data: web::Data<Arc<Mutex<MarketData>>>,
     pool: web::Data<Option<PgPool>>,
     req_body: web::Json<OrderRequest>,
 ) -> HttpResponse {
@@ -89,6 +91,13 @@ pub async fn fetch_order(
     let mut ob = orderbook.lock().unwrap();
 
     let result = ob.engine(order_convert).await;
+    // run on_trade for every executed trade
+    {
+        let mut md = market_data.lock().unwrap();
+        for trade in result.trades.trades.iter() {
+            md.on_trade(trade);
+        }
+    }
     // ord_response Returns a EngineResult
     match settle_trades(claims.id, result.trades, result.appends, result.fulfilled_ids, pool).await {
         Ok((balances, new_order_id)) => {
