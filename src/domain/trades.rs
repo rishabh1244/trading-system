@@ -7,8 +7,8 @@ pub struct Trade {
     pub buyer_id: i32,
     pub seller_id: i32,
 
-    pub qty: f32,
-    pub price: f32,
+    pub qty: f64,
+    pub price: f64,
 }
 
 #[derive(Serialize, Deserialize)]
