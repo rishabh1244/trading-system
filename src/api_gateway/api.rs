@@ -1,6 +1,7 @@
 use crate::OMS::order_management::{display_orderbook, fetch_order};
 use crate::api_gateway::db;
 use crate::auth;
+use crate::domain::market::MarketData;
 use crate::matching_engine::orderbook::OrderBook;
 use crate::middleware::auth_middleware::validator;
 
@@ -15,6 +16,8 @@ pub async fn api_gateway() -> std::io::Result<()> {
     let database_url = std::env::var("DATABASE_URL").expect("database url not found");
 
     let orderbook = Arc::new(Mutex::new(OrderBook::new()));
+
+    let market = Arc::new(Mutex::new(MarketData::new()));
 
     let pool = db::init_pool(&database_url)
         .await
@@ -34,6 +37,7 @@ pub async fn api_gateway() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(Some(pool.clone())))
             .app_data(web::Data::new(orderbook.clone()))
+            .app_data(web::Data::new(market.clone()))
             .service(auth::login::login_user)
             .service(auth::register::register_user)
             .service(
