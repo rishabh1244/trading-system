@@ -2,43 +2,10 @@ TRADING ENGINE - THINGS TO FIX BEFORE PRODUCTION
 ====================================================
 (Written in plain language so you can pick this up later)
 
---------------------------------------------------
-THE 2 MOST URGENT THINGS (do these first)
---------------------------------------------------
-
-1) YOUR SECRET KEY IS LEAKED IN GIT HISTORY
-   What's wrong:
-   - Your .env file (which has JWT_SECRET="THISOKAS") got committed to git.
-   - Anyone who can see your repo history can fake login tokens for ANY user.
-
-   What to do:
-   - Add .env to .gitignore right away.
-   - Remove .env from git history completely (not just delete it now -
-     it's still in old commits). Look up "git filter-repo" or "BFG Repo
-     Cleaner" to scrub it from history.
-   - Generate a new, long, random JWT_SECRET (don't reuse "THISOKAS").
-   - Never commit real secrets again - use .env.example with fake
-     placeholder values instead.
-
-2) MONEY MATH USES FLOATING POINT NUMBERS (f64)
-   What's wrong:
-   - Your database stores balances as NUMERIC (correct, exact numbers).
-   - But your Rust code converts everything to f64 (decimal numbers that
-     computers store imprecisely) to do the math, then saves it back.
-   - Over time, tiny rounding errors will build up and balances will
-     become slightly wrong. This is a classic "invisible bug" that only
-     shows up after real usage.
-
-   What to do:
-   - Use a proper decimal/money type in Rust instead of f64
-     (look up the "rust_decimal" crate, or sqlx's "bigdecimal" feature).
-   - Do all balance math using that type, not plain floats.
-
---------------------------------------------------
-OTHER MONEY-SAFETY PROBLEMS
+PENDING (UNSOLVED)
 --------------------------------------------------
 
-3) TWO ORDERS AT THE SAME TIME CAN OVERSPEND A USER'S BALANCE
+1) TWO ORDERS AT THE SAME TIME CAN OVERSPEND A USER'S BALANCE
    What's wrong:
    - When someone places an order, you check "do they have enough
      balance?" and THEN later you deduct it. Nothing stops two orders from
@@ -53,7 +20,7 @@ OTHER MONEY-SAFETY PROBLEMS
      check if a row was actually updated), or lock the user's balance row
      while you check and update it.
 
-4) NO DATABASE TRANSACTIONS ANYWHERE
+2) NO DATABASE TRANSACTIONS ANYWHERE
    What's wrong:
    - Settling a trade involves several separate steps: insert the trade,
      update buyer balance, update seller balance, mark old order as
@@ -68,11 +35,7 @@ OTHER MONEY-SAFETY PROBLEMS
      (BEGIN ... COMMIT). If any step fails, the whole thing rolls back
      and nothing is left half-done.
 
---------------------------------------------------
-MATCHING ENGINE (ORDER BOOK) BUGS
---------------------------------------------------
-
-5) ORDERS AREN'T MATCHED BY BEST PRICE FIRST
+3) ORDERS AREN'T MATCHED BY BEST PRICE FIRST
    What's wrong:
    - A real exchange matches the BEST available price first (cheapest
      ask for buyers, highest bid for sellers).
@@ -87,7 +50,7 @@ MATCHING ENGINE (ORDER BOOK) BUGS
      queue/heap).
    - Always match against the front of that sorted list first.
 
-6) OLD FULFILLED ORDERS NEVER GET CLEANED OUT OF MEMORY
+4) OLD FULFILLED ORDERS NEVER GET CLEANED OUT OF MEMORY
    What's wrong:
    - When an order is fully filled, you just mark it "fulfilled" and
      skip over it - but it stays in the list forever.
@@ -98,76 +61,85 @@ MATCHING ENGINE (ORDER BOOK) BUGS
    - Actually remove fulfilled orders from the in-memory list once
      they're done (not just mark and skip).
 
-7) A REGULAR LOCK (MUTEX) IS HELD WHILE WAITING ON THE DATABASE
-   What's wrong:
-   - Your code locks the order book, then does slow database work
-     (settling the trade) WHILE STILL HOLDING THAT LOCK.
-   - This means only one order can be processed at a time across your
-     WHOLE app, even though database calls are slow. It kills your
-     throughput and is a known trap in async Rust code.
-
-   What to do:
-   - Restructure so you: (a) lock the order book only briefly to run the
-     matching logic, (b) unlock it, (c) then do the slower database
-     settlement work without holding the lock.
-   - If you do need an async-aware lock, use "tokio::sync::Mutex" instead
-     of the standard library one - but the better fix is the
-     restructuring above.
-
---------------------------------------------------
-THINGS THAT ARE MISSING ENTIRELY
---------------------------------------------------
-
-8) NO TESTS
+5) NO TESTS
    - There isn't a single automated test for the matching engine,
      settlement logic, or auth. For something handling real money, this
      is risky - you want tests that check things like "does a partial
      fill work correctly", "does balance math stay correct after 1000
      trades", etc.
 
-9) NO RATE LIMITING
+6) NO RATE LIMITING
    - Nothing stops someone from spamming your login or order endpoints
      as fast as they want. Add rate limiting, especially on
      /api/login and /api/register.
 
-10) NO LOGGING / MONITORING
-    - There's basic eprintln! in a couple of places but no real
-      structured logging or tracing. If something goes wrong in
-      production, you'll have a hard time figuring out what happened.
-      Look into the "tracing" crate.
+7) NO LOGGING / MONITORING
+   - There's basic eprintln! in a couple of places but no real
+     structured logging or tracing. If something goes wrong in
+     production, you'll have a hard time figuring out what happened.
+     Look into the "tracing" crate.
 
-11) SEVERAL .unwrap() CALLS THAT CAN CRASH THE SERVER
-    - A few places assume something always works (like reading a value
-      out of a request) and just .unwrap() it. If that assumption is
-      ever wrong, it crashes that request instead of failing gracefully.
-      Replace these with proper error handling.
+8) SEVERAL .unwrap() CALLS THAT CAN CRASH THE SERVER
+   - A few places assume something always works (like reading a value
+     out of a request) and just .unwrap() it. If that assumption is
+     ever wrong, it crashes that request instead of failing gracefully.
+     Replace these with proper error handling.
+   - Remaining spots: order_management.rs:40 (claims), order_management.rs:96/102/123/134
+     (mutex locks), api.rs:28 (lock), register.rs:28, domain/common.rs:56,
+     engine.rs:39/47 (hashmap lookups).
+
+9) TWO STRAY FILES AT THE ROOT OF YOUR PROJECT
+   - "2" and ":w" at the root look like an accidental save from vim.
+     Safe to delete.
+
+10) QTY AND PRICE ARE WHOLE NUMBERS (INTEGERS) ONLY
+    - Orders only accept whole-number qty/price, so you can't trade
+      fractional amounts (like 0.001 BTC). Decide if this is intentional
+      (e.g. trading in smallest units) or a limitation you want to fix
+      later.
+    - Note: the internal Trade struct and DB columns can already hold
+      decimals; only the order input (i32) restricts you.
 
 --------------------------------------------------
-SMALL / COSMETIC CLEANUP
+COMPLETED (SOLVED)
 --------------------------------------------------
 
-12) Two stray files at the root of your project ("2" and ":w") - these
-    look like an accidental save from vim. Safe to delete.
+11) SECRET KEY WAS LEAKED IN GIT HISTORY
+    - Fixed. Scrubbed .env out of the entire git history with git-filter-repo
+      and force-pushed the cleaned history to GitHub (no commit contains .env
+      anymore).
+    - Added .env to .gitignore so it can't be committed again.
+    - Rotated JWT_SECRET to a fresh random value (the old hardcoded one was
+      branded and is revoked).
+    - Added .env.example with placeholder values for reference.
+    - You can delete the leftover safety tag `backup-before-env-scrub` once
+      you're happy, with: git tag -d backup-before-env-scrub
 
-13) Your qty and price for orders are whole numbers (integers) only, so
-    you can't trade fractional amounts (like 0.001 BTC). Decide if this
-    is intentional (e.g. trading in smallest units) or a limitation you
-    want to fix later.
+12) MONEY MATH USES FLOATING POINT NUMBERS (f64)
+    - Fixed by switching all money math to rust_decimal::Decimal.
+    - Balances, trade qty/price, and market last_price are now Decimal;
+      DB NUMERIC columns are read/written without ::float8 casts and
+      without imprecise float rounding.
+
+13) A REGULAR LOCK (MUTEX) IS HELD WHILE WAITING ON THE DATABASE
+    - Fixed in OMS/order_management.rs.
+    - The orderbook mutex is now only locked for the fast in-memory
+      matching step; it is released before the slow database settlement
+      work (settle_trades), and re-locked briefly only to stamp the new
+      resting order id. Other requests are no longer blocked during DB
+      updates.
 
 --------------------------------------------------
-SUGGESTED ORDER TO TACKLE THIS
+SUGGESTED ORDER TO TACKLE THE REMAINING PENDING ITEMS
 --------------------------------------------------
-1. Scrub the leaked secret from git history + rotate it        (#1)
-2. Switch money math from f64 to a decimal type                (#2)
-3. Wrap settlement steps in a database transaction              (#4)
-4. Fix the balance check race condition                         (#3)
-5. Fix order matching to use best-price-first                   (#5)
-6. Stop holding the mutex across database calls                 (#7)
-7. Clean up fulfilled orders from memory                        (#6)
-8. Add tests as you fix each piece above                        (#8)
-9. Add rate limiting + logging                                  (#9, #10)
-10. Replace risky .unwrap() calls                                (#11)
-11. Cosmetic cleanup                                             (#12, #13)
+1. Wrap settlement steps in a database transaction              (#2)
+2. Fix the balance check race condition                         (#1)
+3. Fix order matching to use best-price-first                   (#3)
+4. Clean up fulfilled orders from memory                        (#4)
+5. Add tests as you fix each piece above                        (#5)
+6. Add rate limiting + logging                                  (#6, #7)
+7. Replace risky .unwrap() calls                                (#8)
+8. Cosmetic cleanup                                             (#9, #10)
 
 Good luck! This is a solid learning project - the shape of the system
 (auth -> orders -> matching -> settlement) is right, it just needs the

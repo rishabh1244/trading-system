@@ -87,11 +87,16 @@ pub async fn fetch_order(
         }
     }
 
-// call the matching engine
+    // call the matching engine
     let order_convert = ConvertToOrder(&req_body, claims.id);
-    let mut ob = orderbook.lock().unwrap();
 
-    let result = ob.engine(order_convert).await;
+    // lock the orderbook ONLY for the (fast, in-memory) matching step,
+    // then release it before the slow database settlement work
+    let result = {
+        let mut ob = orderbook.lock().unwrap();
+        ob.engine(order_convert).await
+    };
+
     // run on_trade for every executed trade
     {
         let mut md = market_data.lock().unwrap();
@@ -99,11 +104,23 @@ pub async fn fetch_order(
             md.on_trade(trade);
         }
     }
+    // we try to declare lock() for a mutex in a scope {} block scoping , so when we are out of
+    // the scope it the lock automatically frees
+
     // ord_response Returns a EngineResult
-    match settle_trades(claims.id, result.trades, result.appends, result.fulfilled_ids, pool).await {
+    match settle_trades(
+        claims.id,
+        result.trades,
+        result.appends,
+        result.fulfilled_ids,
+        pool,
+    )
+    .await
+    {
         Ok((balances, new_order_id)) => {
             // stamp the freshly inserted DB order id onto the resting order in memory
             if let Some(id) = new_order_id {
+                let mut ob = orderbook.lock().unwrap();
                 ob.set_last_resting_id(&req_body.side, id);
             }
             HttpResponse::Ok().json(balances)
