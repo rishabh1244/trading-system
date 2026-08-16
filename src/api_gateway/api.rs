@@ -25,7 +25,7 @@ pub async fn api_gateway() -> std::io::Result<()> {
 
     // reload resting orders from the database back into the in-memory orderbook
     {
-        let mut ob = orderbook.lock().unwrap();
+        let mut ob = orderbook.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(e) = ob.load_from_db(&pool).await {
             eprintln!("failed to load resting orders from db: {e}");
         }

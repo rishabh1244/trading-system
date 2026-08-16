@@ -7,7 +7,7 @@ use crate::trading_engine::engine::settle_trades;
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, post, web};
 use rust_decimal::Decimal;
 use sqlx::PgPool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub fn ConvertToOrder(req: &OrderRequest, user_id: i32) -> Order {
     Order {
@@ -18,6 +18,22 @@ pub fn ConvertToOrder(req: &OrderRequest, user_id: i32) -> Order {
         price: req.price,
         status: "pending".to_string(),
     }
+}
+
+fn lock_book(orderbook: &Arc<Mutex<OrderBook>>) -> Result<MutexGuard<'_, OrderBook>, HttpResponse> {
+    orderbook.lock().map_err(|_| {
+        HttpResponse::InternalServerError()
+            .json(serde_json::json!({"fail_reason": "orderbook lock poisoned"}))
+    })
+}
+
+fn lock_market(
+    market_data: &Arc<Mutex<MarketData>>,
+) -> Result<MutexGuard<'_, MarketData>, HttpResponse> {
+    market_data.lock().map_err(|_| {
+        HttpResponse::InternalServerError()
+            .json(serde_json::json!({"fail_reason": "market data lock poisoned"}))
+    })
 }
 
 #[post("/api/order")]
@@ -37,7 +53,10 @@ pub async fn fetch_order(
     };
 
     let exts = req.extensions();
-    let claims = exts.get::<Claims>().unwrap();
+    let Some(claims) = exts.get::<Claims>() else {
+        return HttpResponse::Unauthorized()
+            .json(serde_json::json!({"fail_reason": "missing auth claims"}));
+    };
 
     if req_body.qty <= 0 {
         return HttpResponse::InternalServerError()
@@ -48,41 +67,62 @@ pub async fn fetch_order(
             .json(serde_json::json!("price of asset must be valid "));
     }
 
-    // check if the order can be placed
-    // check if the user has the required assets
-
-    // if req_body.side == SELL check if qty >= balance_btc
-    // if req_body.side == BUY check if qty >= balance_inr
-
+    // lock funds atomically: check the balance AND deduct it in one UPDATE.
+    // if no row is affected, the user doesn't have enough funds.
     if req_body.side == "SELL" {
-        let balance_btc: Decimal =
-            sqlx::query_scalar("SELECT balance_btc from balances where user_id=$1")
-                .bind(claims.id)
-                .fetch_one(pool)
-                .await
-                .unwrap_or(Decimal::ZERO);
         let required_btc = Decimal::from(req_body.qty);
 
-        if balance_btc < required_btc {
+        let result = match sqlx::query(
+            "UPDATE balances
+             SET balance_btc = balance_btc - $1
+             WHERE user_id = $2
+               AND balance_btc >= $1",
+        )
+        .bind(required_btc)
+        .bind(claims.id)
+        .execute(pool)
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return HttpResponse::InternalServerError()
+                    .json(serde_json::json!({"fail_reason": e.to_string()}));
+            }
+        };
+
+        if result.rows_affected() == 0 {
             return HttpResponse::InternalServerError().json(serde_json::json!(format!(
-                " userId : {} Insufficient Balance :- \n BTC Balance : {} Selling QTY : {}\n",
-                claims.id, balance_btc, req_body.qty
+                " userId : {} Insufficient Balance :- \n Selling QTY : {}\n",
+                claims.id, req_body.qty
             )));
         }
     }
 
     if req_body.side == "BUY" {
-        let balance_inr: Decimal =
-            sqlx::query_scalar("SELECT balance_inr from balances where user_id=$1")
-                .bind(claims.id)
-                .fetch_one(pool)
-                .await
-                .unwrap_or(Decimal::ZERO);
         let required_inr = Decimal::from(req_body.qty) * Decimal::from(req_body.price);
-        if balance_inr < required_inr {
+
+        let result = match sqlx::query(
+            "UPDATE balances
+             SET balance_inr = balance_inr - $1
+             WHERE user_id = $2
+               AND balance_inr >= $1",
+        )
+        .bind(required_inr)
+        .bind(claims.id)
+        .execute(pool)
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return HttpResponse::InternalServerError()
+                    .json(serde_json::json!({"fail_reason": e.to_string()}));
+            }
+        };
+
+        if result.rows_affected() == 0 {
             return HttpResponse::InternalServerError().json(serde_json::json!(format!(
-                " userId : {} Insufficient Balance :- \n INR Balance : {} Buying QTY : {}\n",
-                claims.id, balance_inr, req_body.qty
+                " userId : {} Insufficient Balance :- \n Buying QTY : {}\n",
+                claims.id, req_body.qty
             )));
         }
     }
@@ -93,13 +133,19 @@ pub async fn fetch_order(
     // lock the orderbook ONLY for the (fast, in-memory) matching step,
     // then release it before the slow database settlement work
     let result = {
-        let mut ob = orderbook.lock().unwrap();
+        let mut ob = match lock_book(&orderbook) {
+            Ok(g) => g,
+            Err(resp) => return resp,
+        };
         ob.engine(order_convert).await
     };
 
     // run on_trade for every executed trade
     {
-        let mut md = market_data.lock().unwrap();
+        let mut md = match lock_market(&market_data) {
+            Ok(g) => g,
+            Err(resp) => return resp,
+        };
         for trade in result.trades.trades.iter() {
             md.on_trade(trade);
         }
@@ -120,7 +166,10 @@ pub async fn fetch_order(
         Ok((balances, new_order_id)) => {
             // stamp the freshly inserted DB order id onto the resting order in memory
             if let Some(id) = new_order_id {
-                let mut ob = orderbook.lock().unwrap();
+                let mut ob = match lock_book(&orderbook) {
+                    Ok(g) => g,
+                    Err(resp) => return resp,
+                };
                 ob.set_last_resting_id(&req_body.side, id);
             }
             HttpResponse::Ok().json(balances)
@@ -131,6 +180,9 @@ pub async fn fetch_order(
 }
 #[get("/api/orderbook")]
 pub async fn display_orderbook(orderbook: web::Data<Arc<Mutex<OrderBook>>>) -> HttpResponse {
-    let ob = orderbook.lock().unwrap();
+    let ob = match lock_book(&orderbook) {
+        Ok(g) => g,
+        Err(resp) => return resp,
+    };
     HttpResponse::Ok().json(serde_json::json!({"orderbook": ob.display_orderbook()}))
 }

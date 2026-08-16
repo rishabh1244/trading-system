@@ -39,7 +39,10 @@ pub struct Claims {
     pub id: i32,
 }
 
-pub fn generate_token(username: &str, user_id: i32) -> String {
+pub fn generate_token(
+    username: &str,
+    user_id: i32,
+) -> Result<String, jsonwebtoken::errors::Error> {
     let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "my_secret_key".to_string());
 
     let exp = (Utc::now().timestamp() + 3600) as usize;
@@ -53,5 +56,4 @@ pub fn generate_token(username: &str, user_id: i32) -> String {
         &claims,
         &EncodingKey::from_secret(secret.as_bytes()),
     )
-    .unwrap()
 }

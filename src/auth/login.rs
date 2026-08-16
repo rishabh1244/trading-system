@@ -39,7 +39,14 @@ pub async fn login_user(pool: web::Data<Option<PgPool>>, req_body: web::Json<Aut
                 .verify_password(req_body.password.as_bytes(), &parsed_hash)
                 .is_ok()
             {
-                let token = generate_token(&user.username, user.id);
+                let token = match generate_token(&user.username, user.id) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return HttpResponse::InternalServerError().json(AuthResponseFailure {
+                            fail_reason: format!("token generation failed: {e}"),
+                        });
+                    }
+                };
                 HttpResponse::Ok().json(AuthResponseSuccess { token })
             } else {
                 HttpResponse::Unauthorized().json(AuthResponseFailure {

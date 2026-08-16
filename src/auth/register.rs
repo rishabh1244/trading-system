@@ -23,10 +23,14 @@ pub async fn register_user(
     };
 
     let salt = SaltString::generate(&mut OsRng);
-    let password_hash = Argon2::default()
-        .hash_password(req_body.password.as_bytes(), &salt)
-        .unwrap()
-        .to_string();
+    let password_hash = match Argon2::default().hash_password(req_body.password.as_bytes(), &salt) {
+        Ok(h) => h.to_string(),
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(AuthResponseFailure {
+                fail_reason: format!("password hashing failed: {e}"),
+            });
+        }
+    };
 
     let result = sqlx::query(
         "INSERT INTO users (username, password_hash)
@@ -49,7 +53,14 @@ pub async fn register_user(
             .execute(pool)
             .await;
 
-            let token = generate_token(&req_body.username, user_id);
+            let token = match generate_token(&req_body.username, user_id) {
+                Ok(t) => t,
+                Err(e) => {
+                    return HttpResponse::InternalServerError().json(AuthResponseFailure {
+                        fail_reason: format!("token generation failed: {e}"),
+                    });
+                }
+            };
             HttpResponse::Ok().json(AuthResponseSuccess { token })
         }
         Err(e) => HttpResponse::InternalServerError().json(AuthResponseFailure {

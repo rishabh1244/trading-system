@@ -5,22 +5,7 @@ TRADING ENGINE - THINGS TO FIX BEFORE PRODUCTION
 PENDING (UNSOLVED)
 --------------------------------------------------
 
-1) TWO ORDERS AT THE SAME TIME CAN OVERSPEND A USER'S BALANCE
-   What's wrong:
-   - When someone places an order, you check "do they have enough
-     balance?" and THEN later you deduct it. Nothing stops two orders from
-     both passing the check before either one deducts money.
-   - Example: user has 100 rupees, places 2 orders of 80 rupees each at
-     the exact same time -> both could be approved before either debits
-     the balance -> user "spends" 160 rupees they didn't have.
-
-   What to do:
-   - Do the balance check and the balance deduction as ONE atomic
-     database operation (e.g. UPDATE ... WHERE balance >= amount, and
-     check if a row was actually updated), or lock the user's balance row
-     while you check and update it.
-
-2) NO DATABASE TRANSACTIONS ANYWHERE
+1) NO DATABASE TRANSACTIONS ANYWHERE
    What's wrong:
    - Settling a trade involves several separate steps: insert the trade,
      update buyer balance, update seller balance, mark old order as
@@ -29,13 +14,16 @@ PENDING (UNSOLVED)
      server crashes or a query fails halfway through, you can end up with
      a trade recorded but balances not updated (or vice versa) - a
      half-finished, broken state.
+   - (The write path is only settle_trades -> sync_orderbook, so a single
+     transaction around settle_trades covers it. register.rs's user+balance
+     inserts are a smaller secondary case.)
 
    What to do:
    - Wrap all these steps in a single database transaction
      (BEGIN ... COMMIT). If any step fails, the whole thing rolls back
      and nothing is left half-done.
 
-3) ORDERS AREN'T MATCHED BY BEST PRICE FIRST
+2) ORDERS AREN'T MATCHED BY BEST PRICE FIRST
    What's wrong:
    - A real exchange matches the BEST available price first (cheapest
      ask for buyers, highest bid for sellers).
@@ -50,7 +38,7 @@ PENDING (UNSOLVED)
      queue/heap).
    - Always match against the front of that sorted list first.
 
-4) OLD FULFILLED ORDERS NEVER GET CLEANED OUT OF MEMORY
+3) OLD FULFILLED ORDERS NEVER GET CLEANED OUT OF MEMORY
    What's wrong:
    - When an order is fully filled, you just mark it "fulfilled" and
      skip over it - but it stays in the list forever.
@@ -61,48 +49,65 @@ PENDING (UNSOLVED)
    - Actually remove fulfilled orders from the in-memory list once
      they're done (not just mark and skip).
 
-5) NO TESTS
+4) NO TESTS
    - There isn't a single automated test for the matching engine,
      settlement logic, or auth. For something handling real money, this
      is risky - you want tests that check things like "does a partial
      fill work correctly", "does balance math stay correct after 1000
      trades", etc.
 
-6) NO RATE LIMITING
+5) NO RATE LIMITING
    - Nothing stops someone from spamming your login or order endpoints
      as fast as they want. Add rate limiting, especially on
      /api/login and /api/register.
 
-7) NO LOGGING / MONITORING
+6) NO LOGGING / MONITORING
    - There's basic eprintln! in a couple of places but no real
      structured logging or tracing. If something goes wrong in
      production, you'll have a hard time figuring out what happened.
      Look into the "tracing" crate.
 
-8) SEVERAL .unwrap() CALLS THAT CAN CRASH THE SERVER
-   - A few places assume something always works (like reading a value
-     out of a request) and just .unwrap() it. If that assumption is
-     ever wrong, it crashes that request instead of failing gracefully.
-     Replace these with proper error handling.
-   - Remaining spots: order_management.rs:40 (claims), order_management.rs:96/102/123/134
-     (mutex locks), api.rs:28 (lock), register.rs:28, domain/common.rs:56,
-     engine.rs:39/47 (hashmap lookups).
-
-9) TWO STRAY FILES AT THE ROOT OF YOUR PROJECT
+7) TWO STRAY FILES AT THE ROOT OF YOUR PROJECT
    - "2" and ":w" at the root look like an accidental save from vim.
      Safe to delete.
 
-10) QTY AND PRICE ARE WHOLE NUMBERS (INTEGERS) ONLY
-    - Orders only accept whole-number qty/price, so you can't trade
-      fractional amounts (like 0.001 BTC). Decide if this is intentional
-      (e.g. trading in smallest units) or a limitation you want to fix
-      later.
-    - Note: the internal Trade struct and DB columns can already hold
-      decimals; only the order input (i32) restricts you.
+8) QTY AND PRICE ARE WHOLE NUMBERS (INTEGERS) ONLY
+   - Orders only accept whole-number qty/price, so you can't trade
+     fractional amounts (like 0.001 BTC). Decide if this is intentional
+     (e.g. trading in smallest units) or a limitation you want to fix
+     later.
+   - Note: the internal Trade struct and DB columns can already hold
+     decimals; only the order input (i32) restricts you.
 
 --------------------------------------------------
 COMPLETED (SOLVED)
 --------------------------------------------------
+
+9) TWO ORDERS AT THE SAME TIME COULD OVERSPEND A USER'S BALANCE
+   - Fixed. The balance check and the fund lock are now ONE atomic
+     database operation in OMS/order_management.rs:
+     "UPDATE balances SET balance_btc = balance_btc - $1 WHERE user_id = $2
+      AND balance_btc >= $1" (and the INR equivalent for BUY). If no row is
+      affected the request fails with "Insufficient Balance".
+   - Because funds are locked at placement, the old redundant locking was
+     removed: update_balance() was deleted, sync_orderbook() no longer
+     re-debits balances, and settle_trades() no longer deducts the
+     aggressor's funds (it only transfers: buyer gets BTC, seller gets INR).
+
+10) SEVERAL .unwrap() CALLS THAT COULD CRASH THE SERVER
+    - Fixed. All .unwrap() calls have been replaced with graceful error
+      handling (cargo build shows none left):
+      - Missing auth claims -> 401 instead of panicking (order_management.rs).
+      - Poisoned orderbook / market-data locks -> 500 instead of panicking,
+        via lock_book()/lock_market() helpers (order_management.rs).
+      - Startup orderbook lock recovers via into_inner() (api.rs).
+      - Password hashing failure -> 500 (register.rs).
+      - JWT token generation now returns Result and is handled at both
+        call sites (domain/common.rs, register.rs, login.rs).
+      - Missing balance rows in settlement -> Err instead of panicking
+        (engine.rs).
+    - The remaining .expect() calls are at server startup / config lookup,
+      where failing fast on a misconfiguration is the correct behavior.
 
 11) SECRET KEY WAS LEAKED IN GIT HISTORY
     - Fixed. Scrubbed .env out of the entire git history with git-filter-repo
@@ -132,14 +137,12 @@ COMPLETED (SOLVED)
 --------------------------------------------------
 SUGGESTED ORDER TO TACKLE THE REMAINING PENDING ITEMS
 --------------------------------------------------
-1. Wrap settlement steps in a database transaction              (#2)
-2. Fix the balance check race condition                         (#1)
-3. Fix order matching to use best-price-first                   (#3)
-4. Clean up fulfilled orders from memory                        (#4)
-5. Add tests as you fix each piece above                        (#5)
-6. Add rate limiting + logging                                  (#6, #7)
-7. Replace risky .unwrap() calls                                (#8)
-8. Cosmetic cleanup                                             (#9, #10)
+1. Wrap settlement steps in a database transaction              (#1)
+2. Fix order matching to use best-price-first                   (#2)
+3. Clean up fulfilled orders from memory                        (#3)
+4. Add tests as you fix each piece above                        (#4)
+5. Add rate limiting + logging                                  (#5, #6)
+6. Cosmetic cleanup                                             (#7, #8)
 
 Good luck! This is a solid learning project - the shape of the system
 (auth -> orders -> matching -> settlement) is right, it just needs the

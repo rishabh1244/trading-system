@@ -2,7 +2,6 @@ use crate::domain::common::Balances;
 use crate::domain::order::Order;
 use crate::domain::trades::TradeList;
 use crate::trading_engine::orderbook::sync_orderbook;
-use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 
@@ -35,21 +34,22 @@ pub async fn settle_trades(
         let qty = trade.qty;
         let value = trade.qty * trade.price;
 
-        // buyer receives BTC, and pays INR if the aggressor is the buyer
-        let buyer = balances.get_mut(&trade.buyer_id).unwrap();
-        buyer.balance_btc += qty;
-        if trade.buyer_id == user_id {
-            buyer.balance_inr -= value;
+        // funds were already locked atomically at order placement,
+        // so settlement only transfers the filled amount:
+        // buyer receives BTC, seller receives INR
+        {
+            let Some(buyer) = balances.get_mut(&trade.buyer_id) else {
+                return Err(sqlx::Error::RowNotFound);
+            };
+            buyer.balance_btc += qty;
         }
-        drop(buyer);
 
-        // seller receives INR, and gives up BTC if the aggressor is the seller
-        let seller = balances.get_mut(&trade.seller_id).unwrap();
-        seller.balance_inr += value;
-        if trade.seller_id == user_id {
-            seller.balance_btc -= qty;
+        {
+            let Some(seller) = balances.get_mut(&trade.seller_id) else {
+                return Err(sqlx::Error::RowNotFound);
+            };
+            seller.balance_inr += value;
         }
-        drop(seller);
         // updates trades to datbase
         sqlx::query(
             "INSERT INTO trades (buyer_id , seller_id ,qty , price) VALUES ($1, $2, $3, $4)",
@@ -86,37 +86,4 @@ pub async fn settle_trades(
     }
 
     Ok((balances[&user_id].clone(), appended_order_id))
-}
-
-pub async fn update_balance(
-    user_id: i32,
-    side: &str,
-    qty: i32,
-    price: i32,
-    pool: &PgPool,
-) -> Result<Balances, sqlx::Error> {
-    // updates the balance of users as per each new Order in the Orderbook is added
-    let mut balance: Balances = sqlx::query_as::<_, Balances>(
-        "SELECT user_id, balance_btc, balance_inr from balances where user_id=$1",
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
-
-    if side == "BUY" {
-        // lock INR to fund the buy order
-        balance.balance_inr -= Decimal::from(qty) * Decimal::from(price);
-    } else if side == "SELL" {
-        // lock BTC to fund the sell order
-        balance.balance_btc -= Decimal::from(qty);
-    }
-
-    sqlx::query("UPDATE balances SET balance_btc=$1, balance_inr=$2 WHERE user_id=$3")
-        .bind(balance.balance_btc)
-        .bind(balance.balance_inr)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
-
-    Ok(balance)
 }
