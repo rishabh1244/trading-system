@@ -5,6 +5,7 @@ use crate::middleware::auth_middleware::Claims;
 use crate::trading_engine::engine::settle_trades;
 //
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, post, web};
+use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::sync::{Arc, Mutex};
 
@@ -54,13 +55,13 @@ pub async fn fetch_order(
     // if req_body.side == BUY check if qty >= balance_inr
 
     if req_body.side == "SELL" {
-        let balance_btc: f64 =
-            sqlx::query_scalar("SELECT balance_btc::float8 from balances where user_id=$1")
+        let balance_btc: Decimal =
+            sqlx::query_scalar("SELECT balance_btc from balances where user_id=$1")
                 .bind(claims.id)
                 .fetch_one(pool)
                 .await
-                .unwrap_or(0.0);
-        let required_btc = req_body.qty as f64;
+                .unwrap_or(Decimal::ZERO);
+        let required_btc = Decimal::from(req_body.qty);
 
         if balance_btc < required_btc {
             return HttpResponse::InternalServerError().json(serde_json::json!(format!(
@@ -71,13 +72,13 @@ pub async fn fetch_order(
     }
 
     if req_body.side == "BUY" {
-        let balance_inr: f64 =
-            sqlx::query_scalar("SELECT balance_inr::float8 from balances where user_id=$1")
+        let balance_inr: Decimal =
+            sqlx::query_scalar("SELECT balance_inr from balances where user_id=$1")
                 .bind(claims.id)
                 .fetch_one(pool)
                 .await
-                .unwrap_or(0.0);
-        let required_inr = req_body.qty as f64 * req_body.price as f64;
+                .unwrap_or(Decimal::ZERO);
+        let required_inr = Decimal::from(req_body.qty) * Decimal::from(req_body.price);
         if balance_inr < required_inr {
             return HttpResponse::InternalServerError().json(serde_json::json!(format!(
                 " userId : {} Insufficient Balance :- \n INR Balance : {} Buying QTY : {}\n",

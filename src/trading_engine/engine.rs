@@ -2,6 +2,7 @@ use crate::domain::common::Balances;
 use crate::domain::order::Order;
 use crate::domain::trades::TradeList;
 use crate::trading_engine::orderbook::sync_orderbook;
+use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 
@@ -22,7 +23,7 @@ pub async fn settle_trades(
     let mut balances: HashMap<i32, Balances> = HashMap::new();
     for id in involved {
         let balance: Balances = sqlx::query_as::<_, Balances>(
-            "SELECT user_id, balance_btc::float8, balance_inr::float8 from balances where user_id=$1",
+            "SELECT user_id, balance_btc, balance_inr from balances where user_id=$1",
         )
          .bind(id)
         .fetch_one(pool)
@@ -31,8 +32,8 @@ pub async fn settle_trades(
     }
 
     for trade in trade.trades.iter() {
-        let qty = trade.qty as f64;
-        let value = (trade.qty * trade.price) as f64;
+        let qty = trade.qty;
+        let value = trade.qty * trade.price;
 
         // buyer receives BTC, and pays INR if the aggressor is the buyer
         let buyer = balances.get_mut(&trade.buyer_id).unwrap();
@@ -96,7 +97,7 @@ pub async fn update_balance(
 ) -> Result<Balances, sqlx::Error> {
     // updates the balance of users as per each new Order in the Orderbook is added
     let mut balance: Balances = sqlx::query_as::<_, Balances>(
-        "SELECT user_id, balance_btc::float8, balance_inr::float8 from balances where user_id=$1",
+        "SELECT user_id, balance_btc, balance_inr from balances where user_id=$1",
     )
     .bind(user_id)
     .fetch_one(pool)
@@ -104,10 +105,10 @@ pub async fn update_balance(
 
     if side == "BUY" {
         // lock INR to fund the buy order
-        balance.balance_inr -= (qty * price) as f64;
+        balance.balance_inr -= Decimal::from(qty) * Decimal::from(price);
     } else if side == "SELL" {
         // lock BTC to fund the sell order
-        balance.balance_btc -= qty as f64;
+        balance.balance_btc -= Decimal::from(qty);
     }
 
     sqlx::query("UPDATE balances SET balance_btc=$1, balance_inr=$2 WHERE user_id=$3")

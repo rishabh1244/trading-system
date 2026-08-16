@@ -1,5 +1,6 @@
 use crate::domain::order::Order;
 use crate::domain::trades::{Trade, TradeList};
+use rust_decimal::Decimal;
 use sqlx::PgPool;
 
 use std::cmp;
@@ -95,8 +96,8 @@ impl OrderBook {
         trades.trades.push(Trade {
             buyer_id: self.bids[index].user_id,
             seller_id: match_data.user_id,
-            qty: qty as f64,
-            price: price as f64,
+            qty: Decimal::from(qty),
+            price: Decimal::from(price),
         });
     }
 
@@ -129,8 +130,8 @@ impl OrderBook {
         trades.trades.push(Trade {
             buyer_id: match_data.user_id,
             seller_id: self.asks[index].user_id,
-            qty: qty as f64,
-            price: price as f64,
+            qty: Decimal::from(qty),
+            price: Decimal::from(price),
         });
     }
 

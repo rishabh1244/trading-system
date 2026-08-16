@@ -14,7 +14,7 @@ impl MarketData {
     pub fn new() -> Self {
         Self {
             last_updated: chrono::Utc::now(),
-            last_price: 0.0,
+            last_price: rust_decimal::Decimal::ZERO,
         }
     }
 

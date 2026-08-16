@@ -1,5 +1,6 @@
 use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -7,8 +8,8 @@ pub struct Trade {
     pub buyer_id: i32,
     pub seller_id: i32,
 
-    pub qty: f64,
-    pub price: f64,
+    pub qty: Decimal,
+    pub price: Decimal,
 }
 
 #[derive(Serialize, Deserialize)]

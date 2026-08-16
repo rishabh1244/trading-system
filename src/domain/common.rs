@@ -1,5 +1,6 @@
 use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -17,8 +18,8 @@ pub struct User {
 #[derive(Clone, Debug, sqlx::FromRow, Serialize, Deserialize)]
 pub struct Balances {
     pub user_id: i32,
-    pub balance_btc: f64,
-    pub balance_inr: f64,
+    pub balance_btc: Decimal,
+    pub balance_inr: Decimal,
 }
 
 #[derive(Serialize)]
