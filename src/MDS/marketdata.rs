@@ -1,3 +1,4 @@
+use crate::SocketServer;
 use crate::domain::market::MarketData;
 use crate::domain::trades::Trade;
 
@@ -10,6 +11,10 @@ use crate::domain::trades::Trade;
          order book depth
          candles
 */
+
+// trading engine service should keep on updating this data
+// and then socket server should broadcast .
+
 impl MarketData {
     pub fn new() -> Self {
         Self {
@@ -18,8 +23,11 @@ impl MarketData {
         }
     }
 
-    pub fn on_trade(&mut self, trade: &Trade) {
+    pub fn on_trade(&mut self, trade: &Trade, server: &SocketServer) {
         self.last_price = trade.price;
         self.last_updated = chrono::Utc::now();
+
+        let json = serde_json::to_string(self).unwrap();
+        server.broadcast(&json);
     }
 }

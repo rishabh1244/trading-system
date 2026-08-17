@@ -39,6 +39,7 @@ fn lock_market(
 #[post("/api/order")]
 pub async fn fetch_order(
     req: HttpRequest,
+    socket_server: SocketSocket,
     orderbook: web::Data<Arc<Mutex<OrderBook>>>,
     market_data: web::Data<Arc<Mutex<MarketData>>>,
     pool: web::Data<Option<PgPool>>,
@@ -147,7 +148,7 @@ pub async fn fetch_order(
             Err(resp) => return resp,
         };
         for trade in result.trades.trades.iter() {
-            md.on_trade(trade);
+            md.on_trade(trade, socket_server);
         }
     }
     // we try to declare lock() for a mutex in a scope {} block scoping , so when we are out of
