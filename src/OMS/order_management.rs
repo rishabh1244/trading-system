@@ -1,4 +1,4 @@
-use crate::domain::market::MarketData;
+use crate::domain::market::{MarketData, SocketServer};
 use crate::domain::order::{Order, OrderRequest};
 use crate::matching_engine::orderbook::OrderBook;
 use crate::middleware::auth_middleware::Claims;
@@ -39,7 +39,7 @@ fn lock_market(
 #[post("/api/order")]
 pub async fn fetch_order(
     req: HttpRequest,
-    socket_server: SocketSocket,
+    socket_server: web::Data<Arc<SocketServer>>,
     orderbook: web::Data<Arc<Mutex<OrderBook>>>,
     market_data: web::Data<Arc<Mutex<MarketData>>>,
     pool: web::Data<Option<PgPool>>,
@@ -148,7 +148,7 @@ pub async fn fetch_order(
             Err(resp) => return resp,
         };
         for trade in result.trades.trades.iter() {
-            md.on_trade(trade, socket_server);
+            md.on_trade(trade, socket_server.get_ref());
         }
     }
     // we try to declare lock() for a mutex in a scope {} block scoping , so when we are out of

@@ -1,5 +1,4 @@
-use crate::SocketServer;
-use crate::domain::market::MarketData;
+use crate::domain::market::{MarketData, SocketServer};
 use crate::domain::trades::Trade;
 
 /*

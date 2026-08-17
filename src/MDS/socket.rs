@@ -5,9 +5,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-pub struct SocketServer {
-    clients: Arc<Mutex<Vec<TcpStream>>>,
-}
+use crate::domain::market::SocketServer;
 
 impl SocketServer {
     pub fn new() -> Self {
