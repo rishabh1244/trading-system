@@ -2,26 +2,47 @@ TRADING ENGINE - THINGS TO FIX BEFORE PRODUCTION
 ====================================================
 (Written in plain language so you can pick this up later)
 
+--------------------------------------------------
+NOTE ON CURRENT STATE
+--------------------------------------------------
+You're pausing backend fixes to build the React frontend first - that's
+fine. Item #1 below needs a crash, or an insufficient-balance rejection
+after a partial match, to actually bite. It won't stop you from building
+or testing the frontend against the API as it is now. Just don't point
+this at real users / real money until #1 and #2 are done.
+
+--------------------------------------------------
 PENDING (UNSOLVED)
 --------------------------------------------------
 
-1) NO DATABASE TRANSACTIONS ANYWHERE
+1) NO DATABASE TRANSACTION AROUND SETTLEMENT - AND A NEW ISSUE FROM
+   REORDERING THE FUND LOCK
    What's wrong:
-   - Settling a trade involves several separate steps: insert the trade,
-     update buyer balance, update seller balance, mark old order as
-     fulfilled, insert new resting order.
-   - Right now these are separate, unconnected database calls. If your
-     server crashes or a query fails halfway through, you can end up with
-     a trade recorded but balances not updated (or vice versa) - a
-     half-finished, broken state.
-   - (The write path is only settle_trades -> sync_orderbook, so a single
-     transaction around settle_trades covers it. register.rs's user+balance
-     inserts are a smaller secondary case.)
+   - settle_trades() still runs each write (insert trade, update
+     balances, mark orders fulfilled, insert resting order) as its own
+     separate database call, with no BEGIN...COMMIT around them. A crash
+     or failed query partway through leaves some writes saved and others
+     not - a corrupted, half-settled state.
+   - NEW: fund locking was moved to run AFTER ob.engine() (the in-memory
+     matching step) instead of before it. This means: the in-memory
+     orderbook gets mutated (resting orders decremented/marked fulfilled,
+     trades computed) BEFORE we know if the user can actually afford the
+     order. If lock_funds() then fails (insufficient balance), the
+     function returns an error immediately - but the in-memory mutation
+     from matching is never undone, and settle_trades() (which would
+     have written those matches to the DB) never runs.
+   - Net effect: the in-memory orderbook and the database silently
+     drift apart on every ordinary "insufficient balance" rejection that
+     happens to occur after a partial match. This doesn't need a crash to
+     trigger - it can happen in normal operation.
 
    What to do:
-   - Wrap all these steps in a single database transaction
-     (BEGIN ... COMMIT). If any step fails, the whole thing rolls back
-     and nothing is left half-done.
+   - Move fund locking back to BEFORE calling ob.engine() (check +
+     deduct funds first, THEN match).
+   - Wrap the fund lock + settle_trades() writes in one database
+     transaction (pool.begin() ... tx.commit()), passing the transaction
+     (not the pool) into settle_trades() and sync_orderbook(). If
+     anything fails, nothing gets saved - no partial state.
 
 2) ORDERS AREN'T MATCHED BY BEST PRICE FIRST
    What's wrong:
@@ -54,7 +75,8 @@ PENDING (UNSOLVED)
      settlement logic, or auth. For something handling real money, this
      is risky - you want tests that check things like "does a partial
      fill work correctly", "does balance math stay correct after 1000
-     trades", etc.
+     trades", "does an insufficient-balance rejection leave the
+     orderbook exactly as it was before".
 
 5) NO RATE LIMITING
    - Nothing stops someone from spamming your login or order endpoints
@@ -66,85 +88,51 @@ PENDING (UNSOLVED)
      structured logging or tracing. If something goes wrong in
      production, you'll have a hard time figuring out what happened.
      Look into the "tracing" crate.
-
-7) TWO STRAY FILES AT THE ROOT OF YOUR PROJECT
-   - "2" and ":w" at the root look like an accidental save from vim.
-     Safe to delete.
-
-8) QTY AND PRICE ARE WHOLE NUMBERS (INTEGERS) ONLY
-   - Orders only accept whole-number qty/price, so you can't trade
-     fractional amounts (like 0.001 BTC). Decide if this is intentional
-     (e.g. trading in smallest units) or a limitation you want to fix
-     later.
-   - Note: the internal Trade struct and DB columns can already hold
-     decimals; only the order input (i32) restricts you.
-
 --------------------------------------------------
 COMPLETED (SOLVED)
 --------------------------------------------------
 
 9) TWO ORDERS AT THE SAME TIME COULD OVERSPEND A USER'S BALANCE
-   - Fixed. The balance check and the fund lock are now ONE atomic
-     database operation in OMS/order_management.rs:
-     "UPDATE balances SET balance_btc = balance_btc - $1 WHERE user_id = $2
-      AND balance_btc >= $1" (and the INR equivalent for BUY). If no row is
-      affected the request fails with "Insufficient Balance".
-   - Because funds are locked at placement, the old redundant locking was
-     removed: update_balance() was deleted, sync_orderbook() no longer
-     re-debits balances, and settle_trades() no longer deducts the
-     aggressor's funds (it only transfers: buyer gets BTC, seller gets INR).
+   - Fixed. Funds are checked + deducted in one atomic UPDATE
+     ("... WHERE balance >= $1"), so no row is affected (and the request
+     fails) if the user can't afford it. No separate check-then-deduct
+     race window.
 
 10) SEVERAL .unwrap() CALLS THAT COULD CRASH THE SERVER
     - Fixed. All .unwrap() calls have been replaced with graceful error
-      handling (cargo build shows none left):
-      - Missing auth claims -> 401 instead of panicking (order_management.rs).
-      - Poisoned orderbook / market-data locks -> 500 instead of panicking,
-        via lock_book()/lock_market() helpers (order_management.rs).
-      - Startup orderbook lock recovers via into_inner() (api.rs).
-      - Password hashing failure -> 500 (register.rs).
-      - JWT token generation now returns Result and is handled at both
-        call sites (domain/common.rs, register.rs, login.rs).
-      - Missing balance rows in settlement -> Err instead of panicking
-        (engine.rs).
-    - The remaining .expect() calls are at server startup / config lookup,
-      where failing fast on a misconfiguration is the correct behavior.
+      handling. The one remaining .unwrap() (MDS/marketdata.rs, a
+      serde_json::to_string on an internal struct) is safe - it can't
+      realistically fail here.
 
 11) SECRET KEY WAS LEAKED IN GIT HISTORY
-    - Fixed. Scrubbed .env out of the entire git history with git-filter-repo
-      and force-pushed the cleaned history to GitHub (no commit contains .env
-      anymore).
-    - Added .env to .gitignore so it can't be committed again.
-    - Rotated JWT_SECRET to a fresh random value (the old hardcoded one was
-      branded and is revoked).
-    - Added .env.example with placeholder values for reference.
-    - You can delete the leftover safety tag `backup-before-env-scrub` once
-      you're happy, with: git tag -d backup-before-env-scrub
+    - Fixed. Scrubbed .env out of the entire git history with
+      git-filter-repo, added .env to .gitignore, rotated JWT_SECRET, and
+      added .env.example with placeholder values.
 
 12) MONEY MATH USES FLOATING POINT NUMBERS (f64)
     - Fixed by switching all money math to rust_decimal::Decimal.
-    - Balances, trade qty/price, and market last_price are now Decimal;
-      DB NUMERIC columns are read/written without ::float8 casts and
-      without imprecise float rounding.
+      Balances, trade qty/price, and market last_price are now Decimal.
 
 13) A REGULAR LOCK (MUTEX) IS HELD WHILE WAITING ON THE DATABASE
-    - Fixed in OMS/order_management.rs.
-    - The orderbook mutex is now only locked for the fast in-memory
-      matching step; it is released before the slow database settlement
-      work (settle_trades), and re-locked briefly only to stamp the new
-      resting order id. Other requests are no longer blocked during DB
-      updates.
+    - Fixed. The orderbook mutex is only locked for the fast in-memory
+      matching step and released before any database work.
+    - CAUTION: don't undo this when fixing #1 above - keep the DB
+      transaction and the in-memory mutex as two separate, short-lived
+      locks. Don't hold the mutex open across the transaction's DB calls.
 
 --------------------------------------------------
 SUGGESTED ORDER TO TACKLE THE REMAINING PENDING ITEMS
 --------------------------------------------------
-1. Wrap settlement steps in a database transaction              (#1)
-2. Fix order matching to use best-price-first                   (#2)
-3. Clean up fulfilled orders from memory                        (#3)
-4. Add tests as you fix each piece above                        (#4)
-5. Add rate limiting + logging                                  (#5, #6)
-6. Cosmetic cleanup                                             (#7, #8)
+1. Move fund-locking back to BEFORE matching, then wrap fund-lock +
+   settle_trades in one DB transaction                            (#1)
+2. Fix order matching to use best-price-first                     (#2)
+3. Clean up fulfilled orders from memory                          (#3)
+4. Add tests as you fix each piece above                          (#4)
+5. Add rate limiting + logging                                    (#5, #6)
+6. Cosmetic cleanup                                                (#7, #8)
 
 Good luck! This is a solid learning project - the shape of the system
 (auth -> orders -> matching -> settlement) is right, it just needs the
 money-safety and correctness pieces tightened up before it could handle
-real funds.
+real funds. Build the frontend now if that's more motivating - just
+circle back to #1 and #2 before this ever touches real money.
