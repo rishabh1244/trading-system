@@ -24,7 +24,7 @@ pub async fn settle_trades(
         let balance: Balances = sqlx::query_as::<_, Balances>(
             "SELECT user_id, balance_btc, balance_inr from balances where user_id=$1",
         )
-         .bind(id)
+        .bind(id)
         .fetch_one(pool)
         .await?;
         balances.insert(id, balance);
@@ -33,22 +33,22 @@ pub async fn settle_trades(
     for trade in trade.trades.iter() {
         let qty = trade.qty;
         let value = trade.qty * trade.price;
-
-        // funds were already locked atomically at order placement,
-        // so settlement only transfers the filled amount:
-        // buyer receives BTC, seller receives INR
+        // buyer pays INR and receives BTC
         {
             let Some(buyer) = balances.get_mut(&trade.buyer_id) else {
                 return Err(sqlx::Error::RowNotFound);
             };
             buyer.balance_btc += qty;
+            buyer.balance_inr -= value;
         }
 
+        // seller gives BTC and receives INR
         {
             let Some(seller) = balances.get_mut(&trade.seller_id) else {
                 return Err(sqlx::Error::RowNotFound);
             };
             seller.balance_inr += value;
+            seller.balance_btc -= qty;
         }
         // updates trades to datbase
         sqlx::query(

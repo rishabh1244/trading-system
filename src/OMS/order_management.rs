@@ -68,20 +68,17 @@ pub async fn fetch_order(
             .json(serde_json::json!("price of asset must be valid "));
     }
 
-    // lock funds atomically: check the balance AND deduct it in one UPDATE.
-    // if no row is affected, the user doesn't have enough funds.
+    // verify the user has sufficient balance. actual balance
+    // updates happen only in settle_trades().
     if req_body.side == "SELL" {
         let required_btc = Decimal::from(req_body.qty);
 
         let result = match sqlx::query(
-            "UPDATE balances
-             SET balance_btc = balance_btc - $1
-             WHERE user_id = $2
-               AND balance_btc >= $1",
+            "SELECT balance_btc FROM balances WHERE user_id=$1 AND balance_btc >= $2",
         )
-        .bind(required_btc)
         .bind(claims.id)
-        .execute(pool)
+        .bind(required_btc)
+        .fetch_optional(pool)
         .await
         {
             Ok(r) => r,
@@ -91,7 +88,7 @@ pub async fn fetch_order(
             }
         };
 
-        if result.rows_affected() == 0 {
+        if result.is_none() {
             return HttpResponse::InternalServerError().json(serde_json::json!(format!(
                 " userId : {} Insufficient Balance :- \n Selling QTY : {}\n",
                 claims.id, req_body.qty
@@ -103,14 +100,11 @@ pub async fn fetch_order(
         let required_inr = Decimal::from(req_body.qty) * Decimal::from(req_body.price);
 
         let result = match sqlx::query(
-            "UPDATE balances
-             SET balance_inr = balance_inr - $1
-             WHERE user_id = $2
-               AND balance_inr >= $1",
+            "SELECT balance_inr FROM balances WHERE user_id=$1 AND balance_inr >= $2",
         )
-        .bind(required_inr)
         .bind(claims.id)
-        .execute(pool)
+        .bind(required_inr)
+        .fetch_optional(pool)
         .await
         {
             Ok(r) => r,
@@ -120,7 +114,7 @@ pub async fn fetch_order(
             }
         };
 
-        if result.rows_affected() == 0 {
+        if result.is_none() {
             return HttpResponse::InternalServerError().json(serde_json::json!(format!(
                 " userId : {} Insufficient Balance :- \n Buying QTY : {}\n",
                 claims.id, req_body.qty
@@ -155,6 +149,8 @@ pub async fn fetch_order(
     // the scope it the lock automatically frees
 
     // ord_response Returns a EngineResult
+
+    // this is where we sould actually updaet the balance in the databse .
     match settle_trades(
         claims.id,
         result.trades,
