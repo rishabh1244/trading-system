@@ -1,0 +1,35 @@
+SELL 30 → verifies (40 BTC ≥ 30) → rests. Balance stays 40.
+Wait 5 minutes, SELL 30 again → verifies against the same 40 BTC (first order never touched it) → passes again.
+Both now rest; a buyer matching 60 BTC drives the seller to -20.
+
+
+
+aight , so we kinda need to reserve funds ig . 
+
+balance = 40
+reserved = 0;
+
+placed order for 30
+
+balance = 10 
+reserved = 30
+
+40 BTC
+  │
+  │ place SELL 30
+  ▼
+10 available
+30 reserved
+  │
+  │ order rests in book
+  │
+  │ still reserved!
+  ▼
+buyer eventually matches 30
+
+30 reserved
+     │
+     │ trade settles
+     ▼
+30 consumed
+
