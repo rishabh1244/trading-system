@@ -2,6 +2,9 @@ TRADING ENGINE - THINGS TO FIX BEFORE PRODUCTION
 ====================================================
 (Written in plain language so you can pick this up later)
 
+
+
+
 --------------------------------------------------
 NOTE ON CURRENT STATE
 --------------------------------------------------
@@ -14,35 +17,6 @@ this at real users / real money until #1 and #2 are done.
 --------------------------------------------------
 PENDING (UNSOLVED)
 --------------------------------------------------
-
-1) NO DATABASE TRANSACTION AROUND SETTLEMENT - AND A NEW ISSUE FROM
-   REORDERING THE FUND LOCK
-   What's wrong:
-   - settle_trades() still runs each write (insert trade, update
-     balances, mark orders fulfilled, insert resting order) as its own
-     separate database call, with no BEGIN...COMMIT around them. A crash
-     or failed query partway through leaves some writes saved and others
-     not - a corrupted, half-settled state.
-   - NEW: fund locking was moved to run AFTER ob.engine() (the in-memory
-     matching step) instead of before it. This means: the in-memory
-     orderbook gets mutated (resting orders decremented/marked fulfilled,
-     trades computed) BEFORE we know if the user can actually afford the
-     order. If lock_funds() then fails (insufficient balance), the
-     function returns an error immediately - but the in-memory mutation
-     from matching is never undone, and settle_trades() (which would
-     have written those matches to the DB) never runs.
-   - Net effect: the in-memory orderbook and the database silently
-     drift apart on every ordinary "insufficient balance" rejection that
-     happens to occur after a partial match. This doesn't need a crash to
-     trigger - it can happen in normal operation.
-
-   What to do:
-   - Move fund locking back to BEFORE calling ob.engine() (check +
-     deduct funds first, THEN match).
-   - Wrap the fund lock + settle_trades() writes in one database
-     transaction (pool.begin() ... tx.commit()), passing the transaction
-     (not the pool) into settle_trades() and sync_orderbook(). If
-     anything fails, nothing gets saved - no partial state.
 
 2) ORDERS AREN'T MATCHED BY BEST PRICE FIRST
    What's wrong:

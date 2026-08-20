@@ -1,0 +1,43 @@
+Server Crash mid Trade 
+**Setup**
+
+- Alice has a resting SELL order: 100 BTC at ₹50,000, sitting in the book, `reserved_btc = 100` in the DB, order status `pending`, `order_id = 501`.
+- Bob sends a BUY order for 60 BTC at ₹50,000.
+
+**What happens, step by step**
+
+1. Bob's order hits `api.rs` → the handler calls `OrderBook::engine()`. This is pure in-memory. Inside `orderbook_buy()`:
+   - `qty = min(60, 100) = 60`
+   - Alice's resting order (`self.asks[i]`) has `qty -= 60` → now **40**, still not zero, so it stays `pending` in memory, no `fulfilled_ids` entry.
+   - Bob's `match_data.qty -= 60` → 0, fully filled, no leftover.
+   - A `Trade { buyer: Bob, seller: Alice, qty: 60, price: 50000 }` is pushed into `trades.trades`.
+   - **At this exact moment**, the in-memory book already reflects "Alice sold 60" — but nothing has touched Postgres yet.
+
+2. `engine()` returns. The handler now calls `settle_trades()` with that trade list.
+
+3. Inside `settle_trades()`:
+   - It fetches Alice's and Bob's balance rows from the DB (unchanged so far).
+   - It computes new balances in memory: Bob `+60 BTC`, Alice `+₹30,00,000`, Alice's `reserved_btc -= 60`.
+   - **First DB write**: `INSERT INTO trades (buyer_id, seller_id, qty, price) VALUES (Bob, Alice, 60, 50000)`. This succeeds and commits immediately — it's its own standalone statement, no transaction wrapping it with what comes next.
+
+4. **Right here, the server crashes.** Could be an actual panic, an out-of-memory kill, a `kubectl` rolling deploy restart, a `sqlx` connection pool timeout on the *next* query, the machine losing power — doesn't need to be exotic. It just needs to happen between step 3's `INSERT INTO trades` and the `UPDATE balances` call a few lines later.
+
+**State of the world after the crash**
+
+- `trades` table: says Bob bought 60 BTC from Alice at ₹50,000. This trade is now permanent, auditable history.
+- `balances` table: Alice's `reserved_btc` is still 100 (never updated). Bob's `balance_btc` is still unchanged (never got his 60 BTC). Alice never got her ₹30,00,000.
+- `orders` table: Alice's order 501 still says `qty=100, status='pending'` — the partial-fill `qty=40` update never made it to disk (as I noted, partial fills aren't even persisted in this code, only full fulfillment is).
+- In-memory orderbook: gone. Server restarts, `load_from_db()` reloads Alice's order fresh from Postgres as `qty=100, pending`.
+
+**The aftermath**
+
+The system now believes, simultaneously:
+- "A trade of 60 BTC happened between Bob and Alice" (per `trades`)
+- "Alice still has all 100 BTC reserved and available to sell" (per `balances` + reloaded orderbook)
+- "Bob never received any BTC" (per `balances`)
+
+Alice's order goes back into the live book at full size. It can now match against a *second* buyer, say Charlie, for another 60 BTC — and that trade will settle "normally," debiting Alice's `reserved_btc` by 60, leaving her at 40 reserved even though she only ever had 100 total and has now been recorded as selling 120.
+
+So the money didn't vanish in the sense of disappearing from the universe — it's just that the ledger now has one buyer (Bob) who paid-and-got-nothing recorded in the trade log but not reflected anywhere in his balance, one seller who's been sold out from under twice, and no way to tell from the `balances` table alone that anything is wrong. You'd only catch it by cross-checking `trades` against `balances`, which nothing in this codebase currently does.
+
+That's the story a transaction wrapping fund-lock + trade insert + balance update + order status + resting-order persistence into one atomic commit is meant to prevent: either *all* of that happens, or *none* of it does, and a crash mid-way just means the whole settlement gets retried or discarded cleanly instead of leaving a half-written trade behind.
