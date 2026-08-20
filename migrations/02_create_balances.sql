@@ -5,5 +5,5 @@ CREATE TABLE balances (
     balance_inr NUMERIC NOT NULL DEFAULT 0,
  
     reserved_btc NUMERIC NOT NULL DEFAULT 0,
-    reserved_btc NUMERIC NOT NULL DEFAULT 0
+    reserved_inr NUMERIC NOT NULL DEFAULT 0
 );

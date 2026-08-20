@@ -68,17 +68,22 @@ pub async fn fetch_order(
             .json(serde_json::json!("price of asset must be valid "));
     }
 
-    // verify the user has sufficient balance. actual balance
-    // updates happen only in settle_trades().
+    // reserve the required funds atomically: move them from the available
+    // balance into the reserved bucket in ONE guarded UPDATE so concurrent
+    // orders cannot both pass. if no row is matched, funds are insufficient.
     if req_body.side == "SELL" {
         let required_btc = Decimal::from(req_body.qty);
 
         let result = match sqlx::query(
-            "SELECT balance_btc FROM balances WHERE user_id=$1 AND balance_btc >= $2",
+            "UPDATE balances
+             SET balance_btc = balance_btc - $1,
+                 reserved_btc = reserved_btc + $1
+             WHERE user_id = $2
+               AND balance_btc >= $1",
         )
-        .bind(claims.id)
         .bind(required_btc)
-        .fetch_optional(pool)
+        .bind(claims.id)
+        .execute(pool)
         .await
         {
             Ok(r) => r,
@@ -88,37 +93,27 @@ pub async fn fetch_order(
             }
         };
 
-        if result.is_none() {
+        if result.rows_affected() == 0 {
             return HttpResponse::InternalServerError().json(serde_json::json!(format!(
                 " userId : {} Insufficient Balance :- \n Selling QTY : {}\n",
                 claims.id, req_body.qty
             )));
         }
-        // remove the required balance from the funds and add them to the reserves
-        let _ = sqlx::query(
-            r#"
-    UPDATE balances
-    SET
-        balance_btc = balance_btc - $1,
-        reserves_btc = reserves_btc + $1
-    WHERE user_id = $2
-    "#,
-        )
-        .bind(required_btc)
-        .bind(claims.id)
-        .fetch_optional(pool)
-        .await;
     }
 
     if req_body.side == "BUY" {
         let required_inr = Decimal::from(req_body.qty) * Decimal::from(req_body.price);
 
         let result = match sqlx::query(
-            "SELECT balance_inr FROM balances WHERE user_id=$1 AND balance_inr >= $2",
+            "UPDATE balances
+             SET balance_inr = balance_inr - $1,
+                 reserved_inr = reserved_inr + $1
+             WHERE user_id = $2
+               AND balance_inr >= $1",
         )
-        .bind(claims.id)
         .bind(required_inr)
-        .fetch_optional(pool)
+        .bind(claims.id)
+        .execute(pool)
         .await
         {
             Ok(r) => r,
@@ -128,29 +123,16 @@ pub async fn fetch_order(
             }
         };
 
-        if result.is_none() {
+        if result.rows_affected() == 0 {
             return HttpResponse::InternalServerError().json(serde_json::json!(format!(
                 " userId : {} Insufficient Balance :- \n Buying QTY : {}\n",
                 claims.id, req_body.qty
             )));
         }
-        let _ = sqlx::query(
-            r#"
-    UPDATE balances
-    SET
-        balance_inr = balance_inr - $1,
-        reserves_inr = reserves_inr + $1
-    WHERE user_id = $2
-    "#,
-        )
-        .bind(required_inr)
-        .bind(claims.id)
-        .fetch_optional(pool)
-        .await;
     }
 
     // call the matching engine
-    let order_convert = ConvertToOrder(&req_body, claims.id);
+    let order = ConvertToOrder(&req_body, claims.id);
 
     // lock the orderbook ONLY for the (fast, in-memory) matching step,
     // then release it before the slow database settlement work
@@ -159,7 +141,7 @@ pub async fn fetch_order(
             Ok(g) => g,
             Err(resp) => return resp,
         };
-        ob.engine(order_convert).await
+        ob.engine(order.clone()).await
     };
 
     // run on_trade for every executed trade
@@ -180,6 +162,7 @@ pub async fn fetch_order(
     // this is where we sould actually updaet the balance in the databse .
     match settle_trades(
         claims.id,
+        &order,
         result.trades,
         result.appends,
         result.fulfilled_ids,
