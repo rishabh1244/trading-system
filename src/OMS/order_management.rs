@@ -94,6 +94,20 @@ pub async fn fetch_order(
                 claims.id, req_body.qty
             )));
         }
+        // remove the required balance from the funds and add them to the reserves
+        let _ = sqlx::query(
+            r#"
+    UPDATE balances
+    SET
+        balance_btc = balance_btc - $1,
+        reserves_btc = reserves_btc + $1
+    WHERE user_id = $2
+    "#,
+        )
+        .bind(required_btc)
+        .bind(claims.id)
+        .fetch_optional(pool)
+        .await;
     }
 
     if req_body.side == "BUY" {
@@ -120,6 +134,19 @@ pub async fn fetch_order(
                 claims.id, req_body.qty
             )));
         }
+        let _ = sqlx::query(
+            r#"
+    UPDATE balances
+    SET
+        balance_inr = balance_inr - $1,
+        reserves_inr = reserves_inr + $1
+    WHERE user_id = $2
+    "#,
+        )
+        .bind(required_inr)
+        .bind(claims.id)
+        .fetch_optional(pool)
+        .await;
     }
 
     // call the matching engine

@@ -22,7 +22,7 @@ pub async fn settle_trades(
     let mut balances: HashMap<i32, Balances> = HashMap::new();
     for id in involved {
         let balance: Balances = sqlx::query_as::<_, Balances>(
-            "SELECT user_id, balance_btc, balance_inr from balances where user_id=$1",
+            "SELECT user_id, balance_btc, balance_inr, reserved_inr, reserved_btc, from balances where user_id=$1",
         )
         .bind(id)
         .fetch_one(pool)
@@ -39,7 +39,7 @@ pub async fn settle_trades(
                 return Err(sqlx::Error::RowNotFound);
             };
             buyer.balance_btc += qty;
-            buyer.balance_inr -= value;
+            buyer.reserved_inr -= value;
         }
 
         // seller gives BTC and receives INR
@@ -48,7 +48,7 @@ pub async fn settle_trades(
                 return Err(sqlx::Error::RowNotFound);
             };
             seller.balance_inr += value;
-            seller.balance_btc -= qty;
+            seller.reserved_btc -= qty;
         }
         // updates trades to datbase
         sqlx::query(
@@ -63,9 +63,11 @@ pub async fn settle_trades(
     }
 
     for (id, balance) in balances.iter() {
-        sqlx::query("UPDATE balances SET balance_btc=$1, balance_inr=$2 WHERE user_id=$3")
+        sqlx::query("UPDATE balances SET balance_btc=$1, balance_inr=$2, reserved_btc , reserved_inr WHERE user_id=$3")
             .bind(balance.balance_btc)
             .bind(balance.balance_inr)
+            .bind(balance.reserved_inr)
+            .bind(balance.reserved_btc)
             .bind(id)
             .execute(pool)
             .await?;

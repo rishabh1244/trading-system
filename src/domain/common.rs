@@ -20,6 +20,8 @@ pub struct Balances {
     pub user_id: i32,
     pub balance_btc: Decimal,
     pub balance_inr: Decimal,
+    pub reserved_inr: Decimal,
+    pub reserved_btc: Decimal,
 }
 
 #[derive(Serialize)]
@@ -39,10 +41,7 @@ pub struct Claims {
     pub id: i32,
 }
 
-pub fn generate_token(
-    username: &str,
-    user_id: i32,
-) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn generate_token(username: &str, user_id: i32) -> Result<String, jsonwebtoken::errors::Error> {
     let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "my_secret_key".to_string());
 
     let exp = (Utc::now().timestamp() + 3600) as usize;
