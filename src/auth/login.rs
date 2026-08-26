@@ -6,10 +6,15 @@ use argon2::{
     password_hash::{PasswordHash, PasswordVerifier},
 };
 
-use crate::domain::common::{AuthData, AuthResponseFailure, AuthResponseSuccess, User, generate_token};
+use crate::domain::common::{
+    AuthData, AuthResponseFailure, AuthResponseSuccess, User, generate_token,
+};
 
 #[post("/api/login")]
-pub async fn login_user(pool: web::Data<Option<PgPool>>, req_body: web::Json<AuthData>) -> impl Responder {
+pub async fn login_user(
+    pool: web::Data<Option<PgPool>>,
+    req_body: web::Json<AuthData>,
+) -> impl Responder {
     let pool = match pool.get_ref() {
         Some(p) => p,
         None => {

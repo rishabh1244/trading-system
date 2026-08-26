@@ -1,5 +1,4 @@
 use crate::OMS::order_management::{display_orderbook, fetch_order};
-use crate::api_gateway::db;
 use crate::auth;
 use crate::domain::market::{MarketData, SocketServer};
 use crate::matching_engine::orderbook::OrderBook;
@@ -15,23 +14,9 @@ const PORT: u16 = 8080;
 pub async fn api_gateway(
     socket_server: Arc<SocketServer>,
     market: Arc<Mutex<MarketData>>,
+    orderbook: Arc<Mutex<OrderBook>>,
+    pool: sqlx::PgPool,
 ) -> std::io::Result<()> {
-    let database_url = std::env::var("DATABASE_URL").expect("database url not found");
-
-    let orderbook = Arc::new(Mutex::new(OrderBook::new()));
-
-    let pool = db::init_pool(&database_url)
-        .await
-        .expect("db connection failed");
-
-    // reload resting orders from the database back into the in-memory orderbook
-    {
-        let mut ob = orderbook.lock().unwrap_or_else(|e| e.into_inner());
-        if let Err(e) = ob.load_from_db(&pool).await {
-            eprintln!("failed to load resting orders from db: {e}");
-        }
-    }
-
     println!("Trading engine running on http://127.0.0.1:{PORT}");
     HttpServer::new(move || {
         let auth = HttpAuthentication::bearer(validator);

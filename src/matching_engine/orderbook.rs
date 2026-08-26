@@ -1,18 +1,9 @@
 use crate::domain::order::Order;
 use crate::domain::trades::{Trade, TradeList};
+
 use rust_decimal::Decimal;
-use sqlx::PgPool;
 
 use std::cmp;
-
-#[derive(sqlx::FromRow)]
-struct PendingOrderRow {
-    order_id: i32,
-    user_id: i32,
-    side: String,
-    qty: i32,
-    price: i32,
-}
 
 //static ORDER_BOOK: LazyLock<Mutex<Vec<OrderElement>>> =    LazyLock::new(|| Mutex::new(Vec::new()));
 /// how do i presist this orderbook ? append_orderbook() should call a db fn .. ig
@@ -36,35 +27,12 @@ impl OrderBook {
         }
     }
 
-    /// Reloads all resting (status = pending) orders from the database
-    /// back into the in-memory book. Called at server startup so the
-    /// book survives restarts.
-    pub async fn load_from_db(&mut self, pool: &PgPool) -> Result<(), sqlx::Error> {
-        let rows = sqlx::query_as::<_, PendingOrderRow>(
-            "SELECT order_id, user_id, side, qty::int4, price::int4
-             FROM orders
-             WHERE status = 'pending'
-             ORDER BY order_id",
-        )
-        .fetch_all(pool)
-        .await?;
-
-        for row in rows {
-            let order = Order {
-                order_id: Some(row.order_id),
-                user_id: row.user_id,
-                side: row.side.to_uppercase(),
-                qty: row.qty,
-                price: row.price,
-                status: "pending".to_string(),
-            };
-            if order.side == "BUY" {
-                self.bids.push(order);
-            } else {
-                self.asks.push(order);
-            }
+    pub fn add_resting_order(&mut self, order: Order) {
+        if order.side == "BUY" {
+            self.bids.push(order);
+        } else {
+            self.asks.push(order);
         }
-        Ok(())
     }
 
     fn orderbook_sell(

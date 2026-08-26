@@ -1,6 +1,7 @@
 use crate::domain::common::Balances;
-use crate::domain::order::Order;
+use crate::domain::order::{Order, PendingOrderRow};
 use crate::domain::trades::TradeList;
+use crate::matching_engine::orderbook::OrderBook;
 use crate::trading_engine::orderbook::sync_orderbook;
 use rust_decimal::Decimal;
 use sqlx::PgPool;
@@ -135,4 +136,27 @@ pub async fn settle_trades(
     }
 
     Ok((balances[&user_id].clone(), appended_order_id))
+}
+pub async fn update_orderbook(orderbook: &mut OrderBook, pool: &PgPool) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query_as::<_, PendingOrderRow>(
+        "SELECT order_id, user_id, side, qty::int4, price::int4
+             FROM orders
+             WHERE status = 'pending'
+             ORDER BY order_id",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for row in rows {
+        let order = Order {
+            order_id: Some(row.order_id),
+            user_id: row.user_id,
+            side: row.side.to_uppercase(),
+            qty: row.qty,
+            price: row.price,
+            status: "pending".to_string(),
+        };
+        orderbook.add_resting_order(order);
+    }
+    Ok(())
 }

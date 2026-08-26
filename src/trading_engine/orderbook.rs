@@ -21,4 +21,3 @@ pub async fn sync_orderbook(pool: &PgPool, order: &Order) -> Result<i32, sqlx::E
 
     Ok(row.get("order_id"))
 }
-
