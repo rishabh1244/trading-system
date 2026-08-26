@@ -72,18 +72,25 @@ pub async fn fetch_order(
 
         Atomicity — all or nothing , either every DB Transaction is sucess full or none are ,
         Consistency — the DB moves from one valid state to another valid state (constraints, foreign keys, etc. hold before and after)
-        Isolation — concurrent transactions don't see each other's half-finished work                 Durability — once committed, it survives a crash (this is why Postgres itself uses a write-ahead log internally — same WAL concept I mentioned for matching engines, just one layer lower)
-
+        Isolation — concurrent transactions don't see each other's half-finished work
+        Durability — once committed, it survives a crash (this is why Postgres itself uses a write-ahead log internally — same WAL concept I mentioned for matching engines, just one layer lower)
 
     */
 
-    let mut tx = pool.begin().await?; // "Transaction Prcessing"
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"fail_reason": e.to_string()}));
+        }
+    }; // "Transaction Prcessing"
     // Before each module was doing its own DB Transaction , so we had the risk of one of them failing
     // so we are using Transaction Processing which relies on the ACID concepts of databse
 
     // reserve the required funds atomically: move them from the available
     // balance into the reserved bucket in ONE guarded UPDATE so concurrent
     // orders cannot both pass. if no row is matched, funds are insufficient.
+
     if req_body.side == "SELL" {
         let required_btc = Decimal::from(req_body.qty);
 
@@ -96,7 +103,7 @@ pub async fn fetch_order(
         )
         .bind(required_btc)
         .bind(claims.id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         {
             Ok(r) => r,
@@ -126,7 +133,7 @@ pub async fn fetch_order(
         )
         .bind(required_inr)
         .bind(claims.id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         {
             Ok(r) => r,
@@ -179,11 +186,16 @@ pub async fn fetch_order(
         result.trades,
         result.appends,
         result.fulfilled_ids,
-        pool,
+        &mut tx,
     )
     .await
     {
         Ok((balances, new_order_id)) => {
+            if let Err(e) = tx.commit().await {
+                return HttpResponse::InternalServerError()
+                    .json(serde_json::json!({"fail_reason": e.to_string()}));
+            }
+
             // stamp the freshly inserted DB order id onto the resting order in memory
             if let Some(id) = new_order_id {
                 let mut ob = match lock_book(&orderbook) {

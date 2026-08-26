@@ -4,7 +4,7 @@ use crate::domain::trades::TradeList;
 use crate::matching_engine::orderbook::OrderBook;
 use crate::trading_engine::orderbook::sync_orderbook;
 use rust_decimal::Decimal;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
 
 pub async fn settle_trades(
@@ -13,7 +13,7 @@ pub async fn settle_trades(
     trade: TradeList,
     appends: Option<Order>,
     fulfilled_ids: Vec<i32>,
-    pool: &PgPool,
+    tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(Balances, Option<i32>), sqlx::Error> {
     let mut involved: HashSet<i32> = HashSet::new();
     involved.insert(user_id);
@@ -29,7 +29,7 @@ pub async fn settle_trades(
              from balances where user_id=$1",
         )
         .bind(id)
-        .fetch_one(pool)
+        .fetch_one(&mut **tx)
         .await?;
         balances.insert(id, balance);
     }
@@ -62,7 +62,7 @@ pub async fn settle_trades(
         .bind(trade.seller_id)
         .bind(trade.qty)
         .bind(trade.price)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     }
 
@@ -117,7 +117,7 @@ pub async fn settle_trades(
         .bind(balance.reserved_btc)
         .bind(balance.reserved_inr)
         .bind(id)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     }
 
@@ -125,14 +125,14 @@ pub async fn settle_trades(
     if !fulfilled_ids.is_empty() {
         sqlx::query("UPDATE orders SET status='fulfilled' WHERE order_id = ANY($1)")
             .bind(&fulfilled_ids)
-            .execute(pool)
+            .execute(&mut **tx)
             .await?;
     }
 
     // persist any remaining (unfilled) order into the database orderbook
     let mut appended_order_id = None;
     if let Some(order) = appends {
-        appended_order_id = Some(sync_orderbook(pool, &order).await?);
+        appended_order_id = Some(sync_orderbook(tx, &order).await?);
     }
 
     Ok((balances[&user_id].clone(), appended_order_id))
