@@ -68,6 +68,19 @@ pub async fn fetch_order(
             .json(serde_json::json!("price of asset must be valid "));
     }
 
+    /*
+
+        Atomicity — all or nothing , either every DB Transaction is sucess full or none are ,
+        Consistency — the DB moves from one valid state to another valid state (constraints, foreign keys, etc. hold before and after)
+        Isolation — concurrent transactions don't see each other's half-finished work                 Durability — once committed, it survives a crash (this is why Postgres itself uses a write-ahead log internally — same WAL concept I mentioned for matching engines, just one layer lower)
+
+
+    */
+
+    let mut tx = pool.begin().await?; // "Transaction Prcessing"
+    // Before each module was doing its own DB Transaction , so we had the risk of one of them failing
+    // so we are using Transaction Processing which relies on the ACID concepts of databse
+
     // reserve the required funds atomically: move them from the available
     // balance into the reserved bucket in ONE guarded UPDATE so concurrent
     // orders cannot both pass. if no row is matched, funds are insufficient.
