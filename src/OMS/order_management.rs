@@ -191,6 +191,10 @@ pub async fn fetch_order(
     .await
     {
         Ok((balances, new_order_id)) => {
+            // All writes above (fund lock, trade inserts, balance updates, order status,
+            // resting-order persistence) already happened on disk, tagged with this
+            // transaction's xid
+            //It sends a single COMMIT, which writes one WAL record marking this xid as committed.
             if let Err(e) = tx.commit().await {
                 return HttpResponse::InternalServerError()
                     .json(serde_json::json!({"fail_reason": e.to_string()}));
