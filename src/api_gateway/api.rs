@@ -1,4 +1,4 @@
-use crate::OMS::order_management::{display_orderbook, fetch_order};
+use crate::OMS::order_management::{display_orderbook, fetch_order, get_balance, get_my_orders};
 use crate::auth;
 use crate::domain::market::{MarketData, SocketServer};
 use crate::matching_engine::orderbook::OrderBook;
@@ -34,7 +34,9 @@ pub async fn api_gateway(
                 web::scope("")
                     .wrap(auth)
                     .service(fetch_order)
-                    .service(display_orderbook),
+                    .service(display_orderbook)
+                    .service(get_balance)
+                    .service(get_my_orders),
             )
     })
     .bind(("127.0.0.1", PORT))?

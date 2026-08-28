@@ -1,57 +1,60 @@
-// for communicating the values to the frontend server through a socket server
-
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
-use std::thread;
-
 use crate::domain::market::SocketServer;
+use futures_util::{SinkExt, StreamExt};
+use tokio::net::TcpListener;
+use tokio_tungstenite::tungstenite::Message;
 
 impl SocketServer {
     pub fn new() -> Self {
-        Self {
-            clients: Arc::new(Mutex::new(Vec::new())),
-        }
+        let (tx, _) = tokio::sync::broadcast::channel(100);
+        Self { tx }
     }
 
     pub fn broadcast(&self, msg: &str) {
-        if let Ok(mut clients) = self.clients.lock() {
-            clients.retain(|mut c| c.write_all(msg.as_bytes()).is_ok());
-        }
+        let _ = self.tx.send(msg.to_string());
     }
 
-    pub fn run(&self, addr: &str) -> std::io::Result<()> {
-        let listener = TcpListener::bind(addr)?;
-        println!("Socket server running on {addr}");
+    pub async fn run(&self, addr: &str) -> std::io::Result<()> {
+        let listener = TcpListener::bind(addr).await?;
+        println!("WebSocket server running on ws://{addr}");
 
-        for stream in listener.incoming() {
-            let Ok(stream) = stream else { continue };
-            println!("Connection established!");
+        loop {
+            let Ok((stream, peer)) = listener.accept().await else {
+                continue;
+            };
+            println!("WebSocket connection from {peer}");
 
-            let clients = self.clients.clone();
-            self.clients
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(stream.try_clone()?);
+            let mut rx = self.tx.subscribe();
 
-            thread::spawn(move || {
-                let mut buffer = [0; 1024];
-                let mut stream = stream;
-                loop {
-                    match stream.read(&mut buffer) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            if let Ok(mut clients) = clients.lock() {
-                                for client in clients.iter_mut() {
-                                    let _ = client.write_all(&buffer[..n]);
-                                }
-                            }
-                        }
-                        Err(_) => break,
+            tokio::spawn(async move {
+                let ws_stream = match tokio_tungstenite::accept_async(stream).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("WebSocket handshake failed for {peer}: {e}");
+                        return;
                     }
+                };
+
+                let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+
+                // forward broadcast messages to this client
+                let send_task = tokio::spawn(async move {
+                    while let Ok(msg) = rx.recv().await {
+                        if ws_sender.send(Message::Text(msg.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+
+                // drain incoming messages (client pings / close frames)
+                let recv_task = tokio::spawn(async move {
+                    while let Some(Ok(_)) = ws_receiver.next().await {}
+                });
+
+                tokio::select! {
+                    _ = send_task => {}
+                    _ = recv_task => {}
                 }
             });
         }
-        Ok(())
     }
 }

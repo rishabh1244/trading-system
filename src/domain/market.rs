@@ -1,7 +1,6 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
+use tokio::sync::broadcast;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MarketData {
@@ -10,5 +9,5 @@ pub struct MarketData {
 }
 
 pub struct SocketServer {
-    pub(crate) clients: Arc<Mutex<Vec<TcpStream>>>,
+    pub(crate) tx: broadcast::Sender<String>,
 }

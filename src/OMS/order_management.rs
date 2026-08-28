@@ -6,6 +6,7 @@ use crate::trading_engine::engine::settle_trades;
 //
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, post, web};
 use rust_decimal::Decimal;
+use serde::Serialize;
 use sqlx::PgPool;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -214,6 +215,86 @@ pub async fn fetch_order(
             .json(serde_json::json!({"fail_reason": e.to_string()})),
     }
 }
+#[get("/api/balance")]
+pub async fn get_balance(
+    req: HttpRequest,
+    pool: web::Data<Option<PgPool>>,
+) -> HttpResponse {
+    let pool = match pool.get_ref() {
+        Some(p) => p,
+        None => {
+            return HttpResponse::ServiceUnavailable()
+                .json(serde_json::json!({"fail_reason": "database not connected"}));
+        }
+    };
+
+    let exts = req.extensions();
+    let Some(claims) = exts.get::<Claims>() else {
+        return HttpResponse::Unauthorized()
+            .json(serde_json::json!({"fail_reason": "missing auth claims"}));
+    };
+
+    let balance = sqlx::query_as::<_, crate::domain::common::Balances>(
+        "SELECT user_id, balance_btc, balance_inr, reserved_btc, reserved_inr FROM balances WHERE user_id = $1",
+    )
+    .bind(claims.id)
+    .fetch_optional(pool)
+    .await;
+
+    match balance {
+        Ok(Some(b)) => HttpResponse::Ok().json(b),
+        Ok(None) => HttpResponse::Ok().json(serde_json::json!({
+            "balance_btc": 0, "balance_inr": 0,
+            "reserved_btc": 0, "reserved_inr": 0,
+        })),
+        Err(e) => HttpResponse::InternalServerError()
+            .json(serde_json::json!({"fail_reason": e.to_string()})),
+    }
+}
+
+#[derive(sqlx::FromRow, Serialize)]
+struct OrderRow {
+    order_id: i32,
+    side: String,
+    qty: i32,
+    price: i32,
+    status: String,
+    dateadded: chrono::NaiveDateTime,
+}
+
+#[get("/api/my-orders")]
+pub async fn get_my_orders(
+    req: HttpRequest,
+    pool: web::Data<Option<PgPool>>,
+) -> HttpResponse {
+    let pool = match pool.get_ref() {
+        Some(p) => p,
+        None => {
+            return HttpResponse::ServiceUnavailable()
+                .json(serde_json::json!({"fail_reason": "database not connected"}));
+        }
+    };
+
+    let exts = req.extensions();
+    let Some(claims) = exts.get::<Claims>() else {
+        return HttpResponse::Unauthorized()
+            .json(serde_json::json!({"fail_reason": "missing auth claims"}));
+    };
+
+    let orders = sqlx::query_as::<_, OrderRow>(
+        "SELECT order_id, side, qty, price, status, dateadded FROM orders WHERE user_id = $1 ORDER BY dateadded DESC",
+    )
+    .bind(claims.id)
+    .fetch_all(pool)
+    .await;
+
+    match orders {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => HttpResponse::InternalServerError()
+            .json(serde_json::json!({"fail_reason": e.to_string()})),
+    }
+}
+
 #[get("/api/orderbook")]
 pub async fn display_orderbook(orderbook: web::Data<Arc<Mutex<OrderBook>>>) -> HttpResponse {
     let ob = match lock_book(&orderbook) {

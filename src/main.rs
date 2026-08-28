@@ -38,8 +38,8 @@ async fn main() -> std::io::Result<()> {
     let (pool, orderbook) = startup().await;
 
     let run_server = socket_server.clone();
-    std::thread::spawn(move || {
-        if let Err(e) = run_server.run("127.0.0.1:7878") {
+    tokio::spawn(async move {
+        if let Err(e) = run_server.run("127.0.0.1:7878").await {
             eprintln!("socket server failed: {e}");
         }
     });
