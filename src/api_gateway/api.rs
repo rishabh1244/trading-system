@@ -6,6 +6,7 @@ use crate::middleware::auth_middleware::validator;
 
 use std::sync::{Arc, Mutex};
 
+use actix_cors::Cors;
 use actix_web::{App, HttpServer, web};
 use actix_web_httpauth::middleware::HttpAuthentication;
 
@@ -20,7 +21,9 @@ pub async fn api_gateway(
     println!("Trading engine running on http://127.0.0.1:{PORT}");
     HttpServer::new(move || {
         let auth = HttpAuthentication::bearer(validator);
+        let cors = Cors::permissive();
         App::new()
+            .wrap(cors)
             .app_data(web::Data::new(Some(pool.clone())))
             .app_data(web::Data::new(orderbook.clone()))
             .app_data(web::Data::new(market.clone()))

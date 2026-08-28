@@ -15,3 +15,4 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 argon2 = "0.5"
 jsonwebtoken = "9"
+actix-cors = "0.7"

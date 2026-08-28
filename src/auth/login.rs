@@ -29,6 +29,8 @@ pub async fn login_user(
         .fetch_optional(pool)
         .await;
 
+    println!("{} attempted to login ", req_body.username);
+
     match user {
         Ok(Some(user)) => {
             let parsed_hash = match PasswordHash::new(&user.password_hash) {
