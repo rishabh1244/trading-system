@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -21,7 +22,7 @@ pub struct Order {
     pub order_id: Option<i32>,
     pub user_id: i32,
     pub side: String,
-    pub qty: i32,
-    pub price: i32,
+    pub qty: Decimal,
+    pub price: Decimal,
     pub status: String,
 }

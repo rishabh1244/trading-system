@@ -2,11 +2,11 @@ use crate::domain::order::Order;
 use crate::domain::trades::{Trade, TradeList};
 
 use rust_decimal::Decimal;
-
 use std::cmp;
 
-//static ORDER_BOOK: LazyLock<Mutex<Vec<OrderElement>>> =    LazyLock::new(|| Mutex::new(Vec::new()));
-/// how do i presist this orderbook ? append_orderbook() should call a db fn .. ig
+use std::collections::BTreeMap;
+use std::collections::VecDeque;
+
 /// Result of a single pass through the matching engine.
 pub struct EngineResult {
     pub trades: TradeList,
@@ -15,92 +15,24 @@ pub struct EngineResult {
 }
 
 pub struct OrderBook {
-    bids: Vec<Order>, // Limit BUY orders (people waiting to buy)
-    asks: Vec<Order>, // Limit SELL orders (people waiting to orderbook_sell)
+    bids: BTreeMap<Decimal, VecDeque<Order>>, // Limit BUY orders (people waiting to buy)
+    asks: BTreeMap<Decimal, VecDeque<Order>>, // Limit SELL orders (people waiting to sell)
 }
 
 impl OrderBook {
     pub fn new() -> Self {
         Self {
-            bids: Vec::new(),
-            asks: Vec::new(),
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
         }
     }
 
     pub fn add_resting_order(&mut self, order: Order) {
         if order.side == "BUY" {
-            self.bids.push(order);
+            self.bids.entry(order.price).or_default().push_back(order);
         } else {
-            self.asks.push(order);
+            self.asks.entry(order.price).or_default().push_back(order);
         }
-    }
-
-    fn orderbook_sell(
-        &mut self,
-        index: usize,
-        match_data: &mut Order,
-        trades: &mut TradeList,
-        fulfilled_ids: &mut Vec<i32>,
-    ) {
-        // make the transaction in the orderbook and call the trading engine to db update
-        // puchase means removing BTC from asks
-        //
-        // bids = [100,10]
-        // match_data = [120,7]
-        let qty = cmp::min(match_data.qty, self.bids[index].qty);
-
-        let price = self.bids[index].price; // price we selling for
-        self.bids[index].qty -= qty;
-        if self.bids[index].qty == 0 {
-            self.bids[index].status = "fulfilled".to_string();
-            if let Some(id) = self.bids[index].order_id {
-                fulfilled_ids.push(id);
-            }
-        }
-
-        // TODO (Trading Engine side): update balance of user => balance_prev  - price ;
-        match_data.qty -= qty;
-
-        trades.trades.push(Trade {
-            buyer_id: self.bids[index].user_id,
-            seller_id: match_data.user_id,
-            qty: Decimal::from(qty),
-            price: Decimal::from(price),
-        });
-    }
-
-    fn orderbook_buy(
-        &mut self,
-        index: usize,
-        match_data: &mut Order,
-        trades: &mut TradeList,
-        fulfilled_ids: &mut Vec<i32>,
-    ) {
-        // make the transaction in the orderbook and call the trading engine to db update
-        // puchase means removing BTC from asks
-        //
-        //asks = [100,10]
-        //match_data = [120,7]
-        let qty = cmp::min(match_data.qty, self.asks[index].qty);
-
-        let price = self.asks[index].price; // price we buying for
-        self.asks[index].qty -= qty;
-        if self.asks[index].qty == 0 {
-            self.asks[index].status = "fulfilled".to_string();
-            if let Some(id) = self.asks[index].order_id {
-                fulfilled_ids.push(id);
-            }
-        }
-
-        // TODO (Trading Engine side): update balance of user => balance_prev  - price ;
-        match_data.qty -= qty;
-
-        trades.trades.push(Trade {
-            buyer_id: match_data.user_id,
-            seller_id: self.asks[index].user_id,
-            qty: Decimal::from(qty),
-            price: Decimal::from(price),
-        });
     }
 
     pub fn display_orderbook(&self) -> serde_json::Value {
@@ -110,16 +42,20 @@ impl OrderBook {
         })
     }
 
-    pub fn set_last_resting_id(&mut self, side: &str, order_id: i32) {
+    pub fn set_last_resting_id(&mut self, side: &str, price: Decimal, order_id: i32) {
         match side {
             "BUY" => {
-                if let Some(o) = self.bids.last_mut() {
-                    o.order_id = Some(order_id);
+                if let Some(queue) = self.bids.get_mut(&price) {
+                    if let Some(last) = queue.back_mut() {
+                        last.order_id = Some(order_id);
+                    }
                 }
             }
             "SELL" => {
-                if let Some(o) = self.asks.last_mut() {
-                    o.order_id = Some(order_id);
+                if let Some(queue) = self.asks.get_mut(&price) {
+                    if let Some(last) = queue.back_mut() {
+                        last.order_id = Some(order_id);
+                    }
                 }
             }
             _ => {}
@@ -127,43 +63,96 @@ impl OrderBook {
     }
 
     pub async fn engine(&mut self, mut match_data: Order) -> EngineResult {
-        // attempt to match the incoming order against the resting orderbook
         let mut trades = TradeList { trades: Vec::new() };
         let mut appends: Option<Order> = None;
         let mut fulfilled_ids: Vec<i32> = Vec::new();
 
         if match_data.side == "BUY" {
-            // checks asks
-            let n = self.asks.len();
-
-            for i in 0..n {
-                if self.asks[i].qty <= 0 {
-                    continue;
+            // Match against asks (lowest price first — BTreeMap iterates ascending)
+            for (_price, queue) in self.asks.iter_mut() {
+                if match_data.qty == Decimal::ZERO {
+                    break;
                 }
-                if match_data.price >= self.asks[i].price {
-                    self.orderbook_buy(i, &mut match_data, &mut trades, &mut fulfilled_ids);
+                for resting in queue.iter_mut() {
+                    if match_data.qty == Decimal::ZERO {
+                        break;
+                    }
+                    if resting.qty > Decimal::ZERO && match_data.price >= resting.price {
+                        let qty = cmp::min(match_data.qty, resting.qty);
+                        let price = resting.price;
+
+                        resting.qty -= qty;
+                        if resting.qty == Decimal::ZERO {
+                            resting.status = "fulfilled".to_string();
+                            if let Some(id) = resting.order_id {
+                                fulfilled_ids.push(id);
+                            }
+                        }
+
+                        match_data.qty -= qty;
+
+                        trades.trades.push(Trade {
+                            buyer_id: match_data.user_id,
+                            seller_id: resting.user_id,
+                            qty: Decimal::from(qty),
+                            price,
+                        });
+                    }
                 }
             }
 
-            if match_data.qty > 0 {
-                // leftover order becomes a resting bid
-                self.bids.push(match_data.clone());
+            // Remove fully consumed price levels
+            self.asks.retain(|_, queue| {
+                queue.retain(|o| o.qty > Decimal::ZERO);
+                !queue.is_empty()
+            });
+
+            if match_data.qty > Decimal::ZERO {
+                self.add_resting_order(match_data.clone());
                 appends = Some(match_data);
             }
         } else if match_data.side == "SELL" {
-            let n = self.bids.len();
-
-            for i in 0..n {
-                if self.bids[i].qty <= 0 {
-                    continue;
+            // Match against bids (highest price first — use rev())
+            for (_price, queue) in self.bids.iter_mut().rev() {
+                if match_data.qty == Decimal::ZERO {
+                    break;
                 }
-                if match_data.price <= self.bids[i].price {
-                    self.orderbook_sell(i, &mut match_data, &mut trades, &mut fulfilled_ids);
+                for resting in queue.iter_mut() {
+                    if match_data.qty == Decimal::ZERO {
+                        break;
+                    }
+                    if resting.qty > Decimal::ZERO && match_data.price <= resting.price {
+                        let qty = cmp::min(match_data.qty, resting.qty);
+                        let price = resting.price;
+
+                        resting.qty -= qty;
+                        if resting.qty == Decimal::ZERO {
+                            resting.status = "fulfilled".to_string();
+                            if let Some(id) = resting.order_id {
+                                fulfilled_ids.push(id);
+                            }
+                        }
+
+                        match_data.qty -= qty;
+
+                        trades.trades.push(Trade {
+                            buyer_id: resting.user_id,
+                            seller_id: match_data.user_id,
+                            qty: Decimal::from(qty),
+                            price,
+                        });
+                    }
                 }
             }
-            if match_data.qty > 0 {
-                // leftover order becomes a resting ask
-                self.asks.push(match_data.clone());
+
+            // Remove fully consumed price levels
+            self.bids.retain(|_, queue| {
+                queue.retain(|o| o.qty > Decimal::ZERO);
+                !queue.is_empty()
+            });
+
+            if match_data.qty > Decimal::ZERO {
+                self.add_resting_order(match_data.clone());
                 appends = Some(match_data);
             }
         }

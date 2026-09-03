@@ -15,8 +15,8 @@ pub fn ConvertToOrder(req: &OrderRequest, user_id: i32) -> Order {
         order_id: None,
         user_id,
         side: req.side.clone(),
-        qty: req.qty,
-        price: req.price,
+        qty: req.qty.into(),
+        price: req.price.into(),
         status: "pending".to_string(),
     }
 }
@@ -207,7 +207,7 @@ pub async fn fetch_order(
                     Ok(g) => g,
                     Err(resp) => return resp,
                 };
-                ob.set_last_resting_id(&req_body.side, id);
+                ob.set_last_resting_id(&req_body.side, Decimal::from(req_body.price), id);
             }
             HttpResponse::Ok().json(balances)
         }

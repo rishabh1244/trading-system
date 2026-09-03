@@ -152,8 +152,8 @@ pub async fn update_orderbook(orderbook: &mut OrderBook, pool: &PgPool) -> Resul
             order_id: Some(row.order_id),
             user_id: row.user_id,
             side: row.side.to_uppercase(),
-            qty: row.qty,
-            price: row.price,
+            qty: row.qty.into(),
+            price: row.price.into(),
             status: "pending".to_string(),
         };
         orderbook.add_resting_order(order);
