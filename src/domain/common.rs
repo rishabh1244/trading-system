@@ -24,7 +24,7 @@ pub struct Balances {
     pub reserved_btc: Decimal,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct AuthResponseSuccess {
     pub token: String,
 }

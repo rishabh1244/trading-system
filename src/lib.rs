@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod domain;
 pub mod matching_engine;
 pub mod middleware;

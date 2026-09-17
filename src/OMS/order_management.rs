@@ -270,8 +270,8 @@ pub async fn get_balance(req: HttpRequest, pool: web::Data<Option<PgPool>>) -> H
 struct OrderRow {
     order_id: i32,
     side: String,
-    qty: i32,
-    price: i32,
+    qty: Decimal,
+    price: Decimal,
     status: String,
     dateadded: chrono::NaiveDateTime,
 }
