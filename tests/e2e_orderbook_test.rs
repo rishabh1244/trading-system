@@ -6,7 +6,8 @@ use trading_engine::trading_engine::engine::settle_trades;
 use trading_engine::trading_engine::orderbook::sync_orderbook;
 
 async fn setup_db() -> PgPool {
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    //let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let database_url = String::from("postgres://localhost:5432/trading_engine");
     PgPool::connect(&database_url)
         .await
         .expect("Failed to connect to database")
