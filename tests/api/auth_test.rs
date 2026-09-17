@@ -1,29 +1,38 @@
 use actix_web::{App, web, test};
-use sqlx::PgPool;
-use std::sync::OnceLock;
 
 use trading_engine::auth;
 use trading_engine::domain::common::AuthResponseSuccess;
 
-static DB_POOL: OnceLock<PgPool> = OnceLock::new();
-
-fn get_pool() -> &'static PgPool {
-    DB_POOL.get_or_init(|| {
-        let database_url =
-            std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost:5432/trading_engine".to_string());
-        sqlx::PgPool::connect_lazy(&database_url).expect("failed to connect to database")
-    })
-}
-
-async fn cleanup_user(pool: &PgPool, username: &str) {
-    let _ = sqlx::query("DELETE FROM balances WHERE user_id = (SELECT id FROM users WHERE username = $1)")
-        .bind(username)
-        .execute(pool)
-        .await;
-    let _ = sqlx::query("DELETE FROM users WHERE username = $1")
-        .bind(username)
-        .execute(pool)
-        .await;
+/// Delete a single test user and all their child rows (trades, orders,
+/// balances).  Only touches the one user — never does a global delete.
+async fn cleanup_user(pool: &sqlx::PgPool, username: &str) {
+    if let Ok(Some((uid,))) =
+        sqlx::query_as::<_, (i32,)>("SELECT id FROM users WHERE username = $1")
+            .bind(username)
+            .fetch_optional(pool)
+            .await
+    {
+        sqlx::query("DELETE FROM trades WHERE buyer_id = $1 OR seller_id = $1")
+            .bind(uid)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM orders WHERE user_id = $1")
+            .bind(uid)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM balances WHERE user_id = $1")
+            .bind(uid)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(uid)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
 }
 
 fn test_app() -> App<
@@ -35,7 +44,7 @@ fn test_app() -> App<
         Error = actix_web::Error,
     >,
 > {
-    let pool = get_pool();
+    let pool = super::get_pool();
     App::new()
         .app_data(web::Data::new(Some(pool.clone())))
         .service(auth::register::register_user)
@@ -44,8 +53,8 @@ fn test_app() -> App<
 
 #[tokio::test]
 async fn test_register_success() {
-    let pool = get_pool();
-    let username = "test_register_user_1";
+    let pool = super::get_pool();
+    let username = &super::unique_user("test_reg_ok");
     cleanup_user(pool, username).await;
 
     let app = test::init_service(test_app()).await;
@@ -69,8 +78,8 @@ async fn test_register_success() {
 
 #[tokio::test]
 async fn test_register_duplicate_username() {
-    let pool = get_pool();
-    let username = "test_register_dup_1";
+    let pool = super::get_pool();
+    let username = &super::unique_user("test_dup");
     cleanup_user(pool, username).await;
 
     let app = test::init_service(test_app()).await;
@@ -102,8 +111,8 @@ async fn test_register_duplicate_username() {
 
 #[tokio::test]
 async fn test_login_success() {
-    let pool = get_pool();
-    let username = "test_login_user_1";
+    let pool = super::get_pool();
+    let username = &super::unique_user("test_login_ok");
     let password = "my_secret_pass";
     cleanup_user(pool, username).await;
 
@@ -139,8 +148,8 @@ async fn test_login_success() {
 
 #[tokio::test]
 async fn test_login_wrong_password() {
-    let pool = get_pool();
-    let username = "test_login_wrong_pw_1";
+    let pool = super::get_pool();
+    let username = &super::unique_user("test_login_bad");
     cleanup_user(pool, username).await;
 
     let app = test::init_service(test_app()).await;
@@ -187,8 +196,8 @@ async fn test_login_nonexistent_user() {
 
 #[tokio::test]
 async fn test_register_then_login_returns_valid_jwt() {
-    let pool = get_pool();
-    let username = "test_jwt_flow_1";
+    let pool = super::get_pool();
+    let username = &super::unique_user("test_jwt");
     let password = "jwt_test_pass";
     cleanup_user(pool, username).await;
 
@@ -224,8 +233,19 @@ async fn test_register_then_login_returns_valid_jwt() {
     assert_eq!(register_token.split('.').count(), 3, "register token should be a valid JWT");
     assert_eq!(login_token.split('.').count(), 3, "login token should be a valid JWT");
 
-    // tokens should be different (different iat/exp)
-    assert_ne!(register_token, login_token, "register and login tokens should differ");
+    // both tokens decode to valid claims with the correct username
+    let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "test_secret_for_api_tests".to_string());
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.validate_exp = false;
+    let key = jsonwebtoken::DecodingKey::from_secret(secret.as_bytes());
+
+    let reg_claims: trading_engine::domain::common::Claims =
+        jsonwebtoken::decode(&register_token, &key, &validation).unwrap().claims;
+    assert_eq!(reg_claims.username.as_str(), username.as_str());
+
+    let login_claims: trading_engine::domain::common::Claims =
+        jsonwebtoken::decode(&login_token, &key, &validation).unwrap().claims;
+    assert_eq!(login_claims.username.as_str(), username.as_str());
 
     cleanup_user(pool, username).await;
 }
