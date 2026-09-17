@@ -1,5 +1,6 @@
 use rust_decimal::Decimal;
 use sqlx::PgPool;
+use trading_engine::OMS::order_management::{reserve_buy_balance, reserve_sell_balance};
 use trading_engine::domain::order::Order;
 use trading_engine::matching_engine::orderbook::OrderBook;
 use trading_engine::trading_engine::engine::settle_trades;
@@ -75,6 +76,14 @@ async fn buy_order_matches_sell_order_end_to_end() {
     // initilise users and there balance
     seed_test_data(&pool, seller_id, buyer_id).await;
 
+    // Reserve balances for both parties
+    let mut tx = pool.begin().await.unwrap();
+    reserve_sell_balance(&mut tx, seller_id, 5).await.unwrap();
+    reserve_buy_balance(&mut tx, buyer_id, 5, 100)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
     // 1. Insert seller's resting order into DB
     let mut tx = pool.begin().await.unwrap();
     let sell_order = Order {
@@ -126,7 +135,8 @@ async fn buy_order_matches_sell_order_end_to_end() {
 
     // 6. Verify DB contains the trade
     let trade: (i32, i32, Decimal, Decimal) =
-        sqlx::query_as("SELECT buyer_id, seller_id, qty, price FROM trades LIMIT 1")
+        sqlx::query_as("select buyer_id, seller_id, qty, price from trades where buyer_id=$1 ")
+            .bind(buyer_id)
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -164,7 +174,7 @@ async fn buy_order_matches_sell_order_end_to_end() {
             .await
             .unwrap();
     assert_eq!(buyer_bal.0, Decimal::from(5)); // 0 + 5
-    assert_eq!(buyer_bal.1, Decimal::from(5000)); // 10000 - 5*100
+    assert_eq!(buyer_bal.1, Decimal::from(9500)); // 10000 - 5*100
 }
 
 #[tokio::test]
@@ -174,6 +184,14 @@ async fn partial_fill_sets_resting_order() {
     let buyer_id = 2002;
 
     seed_test_data(&pool, seller_id, buyer_id).await;
+
+    // Reserve balances for both parties
+    let mut tx = pool.begin().await.unwrap();
+    reserve_sell_balance(&mut tx, seller_id, 3).await.unwrap();
+    reserve_buy_balance(&mut tx, buyer_id, 5, 100)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
 
     // Seller places resting order for 3 BTC
     let mut tx = pool.begin().await.unwrap();

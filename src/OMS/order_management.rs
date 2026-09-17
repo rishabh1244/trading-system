@@ -7,8 +7,53 @@ use crate::trading_engine::engine::settle_trades;
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, post, web};
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use std::sync::{Arc, Mutex, MutexGuard};
+
+pub async fn reserve_sell_balance(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i32,
+    qty: i32,
+) -> Result<u64, sqlx::Error> {
+    let required_btc = Decimal::from(qty);
+
+    let result = sqlx::query(
+        "UPDATE balances
+         SET balance_btc = balance_btc - $1,
+             reserved_btc = reserved_btc + $1
+         WHERE user_id = $2
+           AND balance_btc >= $1",
+    )
+    .bind(required_btc)
+    .bind(user_id)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+pub async fn reserve_buy_balance(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i32,
+    qty: i32,
+    price: i32,
+) -> Result<u64, sqlx::Error> {
+    let required_inr = Decimal::from(qty) * Decimal::from(price);
+
+    let result = sqlx::query(
+        "UPDATE balances
+         SET balance_inr = balance_inr - $1,
+             reserved_inr = reserved_inr + $1
+         WHERE user_id = $2
+           AND balance_inr >= $1",
+    )
+    .bind(required_inr)
+    .bind(user_id)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(result.rows_affected())
+}
 
 pub fn ConvertToOrder(req: &OrderRequest, user_id: i32) -> Order {
     Order {
@@ -93,62 +138,34 @@ pub async fn fetch_order(
     // orders cannot both pass. if no row is matched, funds are insufficient.
 
     if req_body.side == "SELL" {
-        let required_btc = Decimal::from(req_body.qty);
-
-        let result = match sqlx::query(
-            "UPDATE balances
-             SET balance_btc = balance_btc - $1,
-                 reserved_btc = reserved_btc + $1
-             WHERE user_id = $2
-               AND balance_btc >= $1",
-        )
-        .bind(required_btc)
-        .bind(claims.id)
-        .execute(&mut *tx)
-        .await
-        {
-            Ok(r) => r,
+        match reserve_sell_balance(&mut tx, claims.id, req_body.qty).await {
+            Ok(0) => {
+                return HttpResponse::InternalServerError().json(serde_json::json!(format!(
+                    " userId : {} Insufficient Balance :- \n Selling QTY : {}\n",
+                    claims.id, req_body.qty
+                )));
+            }
             Err(e) => {
                 return HttpResponse::InternalServerError()
                     .json(serde_json::json!({"fail_reason": e.to_string()}));
             }
-        };
-
-        if result.rows_affected() == 0 {
-            return HttpResponse::InternalServerError().json(serde_json::json!(format!(
-                " userId : {} Insufficient Balance :- \n Selling QTY : {}\n",
-                claims.id, req_body.qty
-            )));
+            _ => {}
         }
     }
 
     if req_body.side == "BUY" {
-        let required_inr = Decimal::from(req_body.qty) * Decimal::from(req_body.price);
-
-        let result = match sqlx::query(
-            "UPDATE balances
-             SET balance_inr = balance_inr - $1,
-                 reserved_inr = reserved_inr + $1
-             WHERE user_id = $2
-               AND balance_inr >= $1",
-        )
-        .bind(required_inr)
-        .bind(claims.id)
-        .execute(&mut *tx)
-        .await
-        {
-            Ok(r) => r,
+        match reserve_buy_balance(&mut tx, claims.id, req_body.qty, req_body.price).await {
+            Ok(0) => {
+                return HttpResponse::InternalServerError().json(serde_json::json!(format!(
+                    " userId : {} Insufficient Balance :- \n Buying QTY : {}\n",
+                    claims.id, req_body.qty
+                )));
+            }
             Err(e) => {
                 return HttpResponse::InternalServerError()
                     .json(serde_json::json!({"fail_reason": e.to_string()}));
             }
-        };
-
-        if result.rows_affected() == 0 {
-            return HttpResponse::InternalServerError().json(serde_json::json!(format!(
-                " userId : {} Insufficient Balance :- \n Buying QTY : {}\n",
-                claims.id, req_body.qty
-            )));
+            _ => {}
         }
     }
 
@@ -216,10 +233,7 @@ pub async fn fetch_order(
     }
 }
 #[get("/api/balance")]
-pub async fn get_balance(
-    req: HttpRequest,
-    pool: web::Data<Option<PgPool>>,
-) -> HttpResponse {
+pub async fn get_balance(req: HttpRequest, pool: web::Data<Option<PgPool>>) -> HttpResponse {
     let pool = match pool.get_ref() {
         Some(p) => p,
         None => {
@@ -263,10 +277,7 @@ struct OrderRow {
 }
 
 #[get("/api/my-orders")]
-pub async fn get_my_orders(
-    req: HttpRequest,
-    pool: web::Data<Option<PgPool>>,
-) -> HttpResponse {
+pub async fn get_my_orders(req: HttpRequest, pool: web::Data<Option<PgPool>>) -> HttpResponse {
     let pool = match pool.get_ref() {
         Some(p) => p,
         None => {
