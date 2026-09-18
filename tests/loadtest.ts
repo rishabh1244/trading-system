@@ -18,7 +18,6 @@ export const options = {
 
 const BASE_URL = 'http://localhost:8080';
 
-
 export default function () {
     const res = http.get(`${BASE_URL}/api/balance`, {
         headers: {
