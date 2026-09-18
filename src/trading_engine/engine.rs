@@ -37,7 +37,6 @@ pub async fn settle_trades(
     for trade in trade.trades.iter() {
         let qty = trade.qty;
         let value = trade.qty * trade.price;
-        // buyer pays INR (out of his reserved inr) and receives BTC
         {
             let Some(buyer) = balances.get_mut(&trade.buyer_id) else {
                 return Err(sqlx::Error::RowNotFound);
@@ -46,7 +45,6 @@ pub async fn settle_trades(
             buyer.reserved_inr -= value;
         }
 
-        // seller gives BTC (out of his reserved btc) and receives INR
         {
             let Some(seller) = balances.get_mut(&trade.seller_id) else {
                 return Err(sqlx::Error::RowNotFound);
@@ -54,7 +52,6 @@ pub async fn settle_trades(
             seller.balance_inr += value;
             seller.reserved_btc -= qty;
         }
-        // updates trades to datbase
         sqlx::query(
             "INSERT INTO trades (buyer_id , seller_id ,qty , price) VALUES ($1, $2, $3, $4)",
         )
@@ -66,9 +63,6 @@ pub async fn settle_trades(
         .await?;
     }
 
-    // release any reserve of the incoming order that was NOT consumed by a trade
-    // and is NOT carried over into the resting (appended) leftover. this happens
-    // when the order fills at a better price than its limit.
     let incoming_reserved = if incoming.side == "BUY" {
         Decimal::from(incoming.qty) * Decimal::from(incoming.price)
     } else {
@@ -97,7 +91,6 @@ pub async fn settle_trades(
     let excess = incoming_reserved - consumed - leftover_reserved;
     if excess > Decimal::ZERO {
         let balance = balances.get_mut(&user_id).ok_or(sqlx::Error::RowNotFound)?;
-        // refund the unused reservation back into the available balance
         if incoming.side == "BUY" {
             balance.reserved_inr -= excess;
             balance.balance_inr += excess;
@@ -121,7 +114,6 @@ pub async fn settle_trades(
         .await?;
     }
 
-    // mark resting orders that were fully matched as fulfilled
     if !fulfilled_ids.is_empty() {
         sqlx::query("UPDATE orders SET status='fulfilled' WHERE order_id = ANY($1)")
             .bind(&fulfilled_ids)
@@ -129,7 +121,6 @@ pub async fn settle_trades(
             .await?;
     }
 
-    // persist any remaining (unfilled) order into the database orderbook
     let mut appended_order_id = None;
     if let Some(order) = appends {
         appended_order_id = Some(sync_orderbook(tx, &order).await?);

@@ -1,6 +1,7 @@
 use crate::domain::market::{MarketData, SocketServer};
 use crate::domain::order::{Order, OrderRequest};
 use crate::matching_engine::orderbook::OrderBook;
+use crate::metrics::MetricsCollector;
 use crate::middleware::auth_middleware::Claims;
 use crate::trading_engine::engine::settle_trades;
 //
@@ -9,12 +10,16 @@ use rust_decimal::Decimal;
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Transaction};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
 pub async fn reserve_sell_balance(
     tx: &mut Transaction<'_, Postgres>,
     user_id: i32,
     qty: i32,
+    metrics: &MetricsCollector,
 ) -> Result<u64, sqlx::Error> {
+    let start = Instant::now();
+
     let required_btc = Decimal::from(qty);
 
     let result = sqlx::query(
@@ -29,6 +34,8 @@ pub async fn reserve_sell_balance(
     .execute(&mut **tx)
     .await?;
 
+    let elapsed = start.elapsed().as_micros() as u64;
+    metrics.record_reserve_balance(elapsed);
     Ok(result.rows_affected())
 }
 
@@ -37,7 +44,10 @@ pub async fn reserve_buy_balance(
     user_id: i32,
     qty: i32,
     price: i32,
+    metrics: &MetricsCollector,
 ) -> Result<u64, sqlx::Error> {
+    let start = Instant::now();
+
     let required_inr = Decimal::from(qty) * Decimal::from(price);
 
     let result = sqlx::query(
@@ -52,6 +62,8 @@ pub async fn reserve_buy_balance(
     .execute(&mut **tx)
     .await?;
 
+    let elapsed = start.elapsed().as_micros() as u64;
+    metrics.record_reserve_balance(elapsed);
     Ok(result.rows_affected())
 }
 
@@ -89,8 +101,11 @@ pub async fn fetch_order(
     orderbook: web::Data<Arc<Mutex<OrderBook>>>,
     market_data: web::Data<Arc<Mutex<MarketData>>>,
     pool: web::Data<Option<PgPool>>,
+    metrics: web::Data<Arc<MetricsCollector>>,
     req_body: web::Json<OrderRequest>,
 ) -> HttpResponse {
+    let handler_start = Instant::now();
+
     let pool = match pool.get_ref() {
         Some(p) => p,
         None => {
@@ -114,31 +129,18 @@ pub async fn fetch_order(
             .json(serde_json::json!("price of asset must be valid "));
     }
 
-    /*
-
-        Atomicity — all or nothing , either every DB Transaction is sucess full or none are ,
-        Consistency — the DB moves from one valid state to another valid state (constraints, foreign keys, etc. hold before and after)
-        Isolation — concurrent transactions don't see each other's half-finished work
-        Durability — once committed, it survives a crash (this is why Postgres itself uses a write-ahead log internally — same WAL concept I mentioned for matching engines, just one layer lower)
-
-    */
-
+    let tx_start = Instant::now();
     let mut tx = match pool.begin().await {
         Ok(tx) => tx,
         Err(e) => {
             return HttpResponse::InternalServerError()
                 .json(serde_json::json!({"fail_reason": e.to_string()}));
         }
-    }; // "Transaction Prcessing"
-    // Before each module was doing its own DB Transaction , so we had the risk of one of them failing
-    // so we are using Transaction Processing which relies on the ACID concepts of databse
-
-    // reserve the required funds atomically: move them from the available
-    // balance into the reserved bucket in ONE guarded UPDATE so concurrent
-    // orders cannot both pass. if no row is matched, funds are insufficient.
+    };
+    metrics.record_tx_begin(tx_start.elapsed().as_micros() as u64);
 
     if req_body.side == "SELL" {
-        match reserve_sell_balance(&mut tx, claims.id, req_body.qty).await {
+        match reserve_sell_balance(&mut tx, claims.id, req_body.qty, &metrics).await {
             Ok(0) => {
                 return HttpResponse::InternalServerError().json(serde_json::json!(format!(
                     " userId : {} Insufficient Balance :- \n Selling QTY : {}\n",
@@ -154,7 +156,7 @@ pub async fn fetch_order(
     }
 
     if req_body.side == "BUY" {
-        match reserve_buy_balance(&mut tx, claims.id, req_body.qty, req_body.price).await {
+        match reserve_buy_balance(&mut tx, claims.id, req_body.qty, req_body.price, &metrics).await {
             Ok(0) => {
                 return HttpResponse::InternalServerError().json(serde_json::json!(format!(
                     " userId : {} Insufficient Balance :- \n Buying QTY : {}\n",
@@ -169,20 +171,23 @@ pub async fn fetch_order(
         }
     }
 
-    // call the matching engine
     let order = ConvertToOrder(&req_body, claims.id);
 
-    // lock the orderbook ONLY for the (fast, in-memory) matching step,
-    // then release it before the slow database settlement work
+    let lock_start = Instant::now();
     let result = {
         let mut ob = match lock_book(&orderbook) {
             Ok(g) => g,
             Err(resp) => return resp,
         };
-        ob.engine(order.clone()).await
+        metrics.record_orderbook_lock(lock_start.elapsed().as_micros() as u64);
+
+        let match_start = Instant::now();
+        let res = ob.engine(order.clone()).await;
+        let match_elapsed = match_start.elapsed().as_micros() as u64;
+        metrics.record_matching(match_elapsed);
+        res
     };
 
-    // run on_trade for every executed trade
     {
         let mut md = match lock_market(&market_data) {
             Ok(g) => g,
@@ -192,12 +197,8 @@ pub async fn fetch_order(
             md.on_trade(trade, socket_server.get_ref());
         }
     }
-    // we try to declare lock() for a mutex in a scope {} block scoping , so when we are out of
-    // the scope it the lock automatically frees
 
-    // ord_response Returns a EngineResult
-
-    // this is where we sould actually updaet the balance in the databse .
+    let settle_start = Instant::now();
     match settle_trades(
         claims.id,
         &order,
@@ -209,16 +210,15 @@ pub async fn fetch_order(
     .await
     {
         Ok((balances, new_order_id)) => {
-            // All writes above (fund lock, trade inserts, balance updates, order status,
-            // resting-order persistence) already happened on disk, tagged with this
-            // transaction's xid
-            //It sends a single COMMIT, which writes one WAL record marking this xid as committed.
+            metrics.record_settle_trades(settle_start.elapsed().as_micros() as u64);
+
+            let commit_start = Instant::now();
             if let Err(e) = tx.commit().await {
                 return HttpResponse::InternalServerError()
                     .json(serde_json::json!({"fail_reason": e.to_string()}));
             }
+            metrics.record_tx_commit(commit_start.elapsed().as_micros() as u64);
 
-            // stamp the freshly inserted DB order id onto the resting order in memory
             if let Some(id) = new_order_id {
                 let mut ob = match lock_book(&orderbook) {
                     Ok(g) => g,
@@ -226,6 +226,8 @@ pub async fn fetch_order(
                 };
                 ob.set_last_resting_id(&req_body.side, Decimal::from(req_body.price), id);
             }
+
+            metrics.record_order_total(handler_start.elapsed().as_micros() as u64);
             HttpResponse::Ok().json(balances)
         }
         Err(e) => HttpResponse::InternalServerError()

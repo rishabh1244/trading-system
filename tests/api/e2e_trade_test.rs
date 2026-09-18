@@ -11,6 +11,7 @@ use trading_engine::auth;
 use trading_engine::domain::common::{AuthResponseSuccess, Balances};
 use trading_engine::domain::market::{MarketData, SocketServer};
 use trading_engine::matching_engine::orderbook::OrderBook;
+use trading_engine::metrics::MetricsCollector;
 use trading_engine::middleware::auth_middleware::validator;
 
 fn total_btc(b: &Balances) -> Decimal {
@@ -90,6 +91,7 @@ macro_rules! build_app {
             .app_data(web::Data::new(Arc::new(Mutex::new(OrderBook::new()))))
             .app_data(web::Data::new(Arc::new(Mutex::new(MarketData::new()))))
             .app_data(web::Data::new(Arc::new(SocketServer::new())))
+            .app_data(web::Data::new(Arc::new(MetricsCollector::new())))
             .service(auth::register::register_user)
             .service(auth::login::login_user)
             .service(

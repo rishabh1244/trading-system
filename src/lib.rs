@@ -1,6 +1,8 @@
+pub mod api_gateway;
 pub mod auth;
 pub mod domain;
 pub mod matching_engine;
+pub mod metrics;
 pub mod middleware;
 pub mod MDS;
 pub mod OMS;

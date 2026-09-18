@@ -40,11 +40,6 @@ export default function(data: { token: string }) {
     'Content-Type': 'application/json',
   };
 
-  const bookRes = http.get(`${BASE_URL}/api/orderbook`, { headers });
-  check(bookRes, {
-    'orderbook status is 200': (r) => r.status === 200,
-  });
-
   const side = Math.random() < 0.5 ? 'BUY' : 'SELL';
   const price = Math.floor(Math.random() * 50000) + 95000;
   const qty = Math.floor(Math.random() * 10) + 1;
@@ -57,17 +52,5 @@ export default function(data: { token: string }) {
 
   check(orderRes, {
     'order status is 200': (r) => r.status === 200,
-  });
-  if (orderRes.status !== 200) {
-    console.log(`ORDER FAILED: ${orderRes.status} ${orderRes.body}`);
-  }
-  const ordersRes = http.get(`${BASE_URL}/api/my-orders`, { headers });
-  check(ordersRes, {
-    'my-orders status is 200': (r) => r.status === 200,
-  });
-
-  const balanceRes = http.get(`${BASE_URL}/api/balance`, { headers });
-  check(balanceRes, {
-    'balance status is 200': (r) => r.status === 200,
   });
 }

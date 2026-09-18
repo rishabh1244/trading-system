@@ -1,5 +1,6 @@
 use rust_decimal::Decimal;
 use sqlx::PgPool;
+use trading_engine::metrics::MetricsCollector;
 use trading_engine::OMS::order_management::{reserve_buy_balance, reserve_sell_balance};
 use trading_engine::domain::order::Order;
 use trading_engine::matching_engine::orderbook::OrderBook;
@@ -77,9 +78,10 @@ async fn buy_order_matches_sell_order_end_to_end() {
     seed_test_data(&pool, seller_id, buyer_id).await;
 
     // Reserve balances for both parties
+    let metrics = MetricsCollector::new();
     let mut tx = pool.begin().await.unwrap();
-    reserve_sell_balance(&mut tx, seller_id, 5).await.unwrap();
-    reserve_buy_balance(&mut tx, buyer_id, 5, 100)
+    reserve_sell_balance(&mut tx, seller_id, 5, &metrics).await.unwrap();
+    reserve_buy_balance(&mut tx, buyer_id, 5, 100, &metrics)
         .await
         .unwrap();
     tx.commit().await.unwrap();
@@ -186,9 +188,10 @@ async fn partial_fill_sets_resting_order() {
     seed_test_data(&pool, seller_id, buyer_id).await;
 
     // Reserve balances for both parties
+    let metrics = MetricsCollector::new();
     let mut tx = pool.begin().await.unwrap();
-    reserve_sell_balance(&mut tx, seller_id, 3).await.unwrap();
-    reserve_buy_balance(&mut tx, buyer_id, 5, 100)
+    reserve_sell_balance(&mut tx, seller_id, 3, &metrics).await.unwrap();
+    reserve_buy_balance(&mut tx, buyer_id, 5, 100, &metrics)
         .await
         .unwrap();
     tx.commit().await.unwrap();
