@@ -129,7 +129,7 @@ pub async fn fetch_order(
             .json(serde_json::json!("price of asset must be valid "));
     }
 
-    let tx_start = Instant::now();
+    let tx_start = Instant::now(); // tx_begin starts 
     let mut tx = match pool.begin().await {
         Ok(tx) => tx,
         Err(e) => {
@@ -137,7 +137,7 @@ pub async fn fetch_order(
                 .json(serde_json::json!({"fail_reason": e.to_string()}));
         }
     };
-    metrics.record_tx_begin(tx_start.elapsed().as_micros() as u64);
+    metrics.record_tx_begin(tx_start.elapsed().as_micros() as u64); // tx_begin ends 
 
     if req_body.side == "SELL" {
         match reserve_sell_balance(&mut tx, claims.id, req_body.qty, &metrics).await {
@@ -156,7 +156,8 @@ pub async fn fetch_order(
     }
 
     if req_body.side == "BUY" {
-        match reserve_buy_balance(&mut tx, claims.id, req_body.qty, req_body.price, &metrics).await {
+        match reserve_buy_balance(&mut tx, claims.id, req_body.qty, req_body.price, &metrics).await
+        {
             Ok(0) => {
                 return HttpResponse::InternalServerError().json(serde_json::json!(format!(
                     " userId : {} Insufficient Balance :- \n Buying QTY : {}\n",
@@ -181,10 +182,10 @@ pub async fn fetch_order(
         };
         metrics.record_orderbook_lock(lock_start.elapsed().as_micros() as u64);
 
-        let match_start = Instant::now();
+        let match_start = Instant::now(); // orderboook matching starts
         let res = ob.engine(order.clone()).await;
-        let match_elapsed = match_start.elapsed().as_micros() as u64;
-        metrics.record_matching(match_elapsed);
+        metrics.record_matching(match_start.elapsed().as_micros() as u64); // orderbook matching ends 
+
         res
     };
 
