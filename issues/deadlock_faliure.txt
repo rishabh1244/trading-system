@@ -1,0 +1,37 @@
+Deadlock = when two threads tries to access the same resource causing a loop  
+
+aight , so running the load test with 100 users gives us the following error 
+
+ERRO[0115] status=500 error= user=bench_13 side=SELL qty=1 price=100 body={"fail_reaso
+n":"error returned from database: deadlock detected"}  source=console
+
+ERRO[0115] status=500 error= user=bench_74 side=BUY qty=5 price=101 body={"fail_reason
+":"error returned from database: deadlock detected"}  source=console
+
+and following bench marks 
+ http_req_duration
+    ✓ 'p(95)<1800' p(95)=956.9ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.32%
+
+
+
+the 0.32 percent fail rate is due to the following reason 
+
+1. reserve_*_balance (order_management.rs:143/159) locks the requester's own balance row and holds it until commit.
+2. Matching runs in memory.
+3. settle_trades (engine.rs:103) then updates the counterparties' rows.
+
+Example of sceanario :-
+  1. Alice : SELL , 5 BTC , 100 INR 
+  2. Bob   : BUY  , 5 BTC , 100 INR 
+
+  if these orders are concurrent , then there is a chance that both the settlement operation that is executed to settle there trade can run for both parties and select both there row's (Postgresql lock rows when any operation is being performed on it ) 
+    Transaction A : 1. UPDATE Alice
+                    2. UPDATE Bob
+    
+    Transaction B : 1. UPDATE Bob
+                    2. UPDATE Alice
+
+    which causes the issue , now alice is waiting for bob row to remove the lock , and bob is waiting for alice's row to remove the lock , which creates the loop 
