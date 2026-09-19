@@ -1,6 +1,6 @@
 use sqlx::PgPool;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc, OnceLock};
+use std::sync::{OnceLock, mpsc};
 
 mod auth_test;
 mod e2e_trade_test;
@@ -25,8 +25,8 @@ pub fn get_pool() -> &'static PgPool {
 
             let pool = rt.block_on(async {
                 sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(10)
-                    .acquire_timeout(std::time::Duration::from_secs(10))
+                    .max_connections(10000)
+                    .acquire_timeout(std::time::Duration::from_secs(20))
                     .connect(&database_url)
                     .await
                     .expect("failed to connect to database")

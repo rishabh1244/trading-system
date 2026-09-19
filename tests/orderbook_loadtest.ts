@@ -35,6 +35,8 @@ export function setup() {
 }
 
 export default function(data: { token: string }) {
+ 
+
   const headers = {
     Authorization: `Bearer ${data.token}`,
     'Content-Type': 'application/json',
