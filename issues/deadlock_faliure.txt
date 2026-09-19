@@ -15,15 +15,85 @@ and following bench marks
     http_req_failed
     ✓ 'rate<0.01' rate=0.32%
 
-
-
 the 0.32 percent fail rate is due to the following reason 
 
 0. Suppose Bob already has an old resting BUY 2 @100, committed earlier, so his row is not locked.
-
 1. Alice's transaction (SELL 5 @100) runs the reserve step and locks Alice's row.
 2. Bob's new transaction (BUY 3 @101) runs the reserve step and locks Bob's row. This happens before the book mutex, so it can be at any moment.
 3. Alice takes the book mutex and matches Bob's old resting BUY for 2. The remaining 3 rest in the book, and the mutex is released.
 4. Bob's new order takes the mutex and matches Alice's resting 3.
 5. Alice's transaction runs settle_trades and needs Bob's row for the first trade. Bob's new transaction holds it, so she waits.
 6. Bob's transaction runs settle_trades and needs Alice's row for the second trade. Alice's transaction holds it, so he waits.
+
+// ai generated flowchart btw 
++-----------------------------------------------------------------------+
+| START: the book already holds Bob's OLD resting BUY 2 @100            |
+|        (committed earlier, so Bob's row is NOT locked)                |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+| 1. ALICE TX  (SELL 5 @100)                                            |
+|    BEGIN -> reserve 5 BTC -> LOCKS ALICE'S ROW                        |
+|    (held until she commits)                                           |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+| 2. BOB TX  (BUY 3 @101)                                               |
+|    BEGIN -> reserve INR -> LOCKS BOB'S ROW                            |
+|    (held until he commits; must happen before step 4)                 |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+| 3. ALICE TX takes the BOOK MUTEX                                      |
+|    matches Bob's old BUY 2 @100  -> trade #1 (2 @ 100)                |
+|    remaining 3 rest in the book as ASK 3 @100                         |
+|    releases the mutex  (Alice has NOT committed yet)                  |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+| 4. BOB TX takes the BOOK MUTEX                                        |
+|    matches Alice's resting ASK 3 @100 -> trade #2 (3 @ 100)           |
+|    book is now empty, releases the mutex                              |
++-----------------------------------------------------------------------+
+                                    |
+                 +------------------+-------------------+
+                 |                                      |
+                 v                                      v
++--------------------------------+     +--------------------------------+
+| 5. ALICE TX: settle_trades     |     | 6. BOB TX: settle_trades       |
+|    UPDATE balances of Bob      |     |    UPDATE balances of Alice    |
+|    -> BLOCKED: Bob's TX        |     |    -> BLOCKED: Alice's TX      |
+|       holds Bob's row          |     |       holds Alice's row        |
++--------------------------------+     +--------------------------------+
+                 |                                      |
+                 +------------------+-------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+| DEADLOCK: each transaction waits for a row the other one holds        |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
+               +-----------+   waits for   +-----------+
+               | ALICE TX  | ------------> |  BOB ROW  |
+               +-----------+               +-----------+
+                     ^                           |
+                     | held by                   | held by
+                     |                           v
+               +-----------+   waits for   +-----------+
+               | ALICE ROW | <------------ |  BOB TX   |
+               +-----------+               +-----------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+| After deadlock_timeout (1 s by default) Postgres aborts ONE tx        |
+| (SQLSTATE 40P01) -> that request returns HTTP 500; the other          |
+| tx then proceeds and commits.                                         |
+|                                                                       |
+| The aborted tx is rolled back in the DB, but the in-memory            |
+| order book keeps the changes it made in steps 3 / 4.                  |
++-----------------------------------------------------------------------+
