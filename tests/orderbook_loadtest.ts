@@ -18,40 +18,60 @@ export const options = {
 
 const BASE_URL = 'http://localhost:8080';
 
-export function setup() {
-  const loginRes = http.post(`${BASE_URL}/api/login`, JSON.stringify({
-    username: 'rishabh',
-    password: 'rishabh123',
-  }), {
-    headers: { 'Content-Type': 'application/json' },
-  });
+const creds: { username: string; password: string; role: string }[] =
+  JSON.parse(open('./loadtest_users.json'));
 
-  check(loginRes, {
-    'login succeeded': (r) => r.status === 200,
-  });
-
-  const body = JSON.parse(loginRes.body as string);
-  return { token: body.token };
+interface ActiveUser {
+  username: string;
+  role: string;
+  token: string;
 }
 
-export default function(data: { token: string }) {
- 
+export function setup(): { users: ActiveUser[] } {
+  const users: ActiveUser[] = [];
+
+  for (const c of creds) {
+    const res = http.post(`${BASE_URL}/api/login`, JSON.stringify({
+      username: c.username,
+      password: c.password,
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (res.status === 200) {
+      const body = JSON.parse(res.body as string);
+      users.push({ username: c.username, role: c.role, token: body.token });
+    }
+  }
+
+  console.log(`Logged in ${users.length}/${creds.length} users`);
+  return { users };
+}
+
+export default function(data: { users: ActiveUser[] }) {
+  if (!data.users || data.users.length === 0) return;
+
+  const user = data.users[Math.floor(Math.random() * data.users.length)];
 
   const headers = {
-    Authorization: `Bearer ${data.token}`,
+    Authorization: `Bearer ${user.token}`,
     'Content-Type': 'application/json',
   };
 
-  const side = Math.random() < 0.5 ? 'BUY' : 'SELL';
-  const price = Math.floor(Math.random() * 50000) + 95000;
-  const qty = Math.floor(Math.random() * 10) + 1;
+  const side = user.role === 'seller' ? 'SELL' : 'BUY';
+  const price = Math.floor(Math.random() * 5) + 98;
+  const qty = Math.floor(Math.random() * 5) + 1;
 
   const orderRes = http.post(`${BASE_URL}/api/order`, JSON.stringify({
     side,
     qty,
     price,
   }), { headers });
-
+  if (orderRes.status !== 200) {
+    console.error(
+      `status=${orderRes.status} error=${orderRes.error} user=${user.username} side=${side} qty=${qty} price=${price} body=${orderRes.body}`
+    );
+  }
   check(orderRes, {
     'order status is 200': (r) => r.status === 200,
   });

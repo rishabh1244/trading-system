@@ -183,7 +183,7 @@ pub async fn fetch_order(
         metrics.record_orderbook_lock(lock_start.elapsed().as_micros() as u64);
 
         let match_start = Instant::now(); // orderboook matching starts
-        let res = ob.engine(order.clone()).await;
+        let res = ob.engine(order.clone());
         metrics.record_matching(match_start.elapsed().as_micros() as u64); // orderbook matching ends 
 
         res

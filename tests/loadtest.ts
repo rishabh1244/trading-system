@@ -18,7 +18,7 @@ export const options = {
 
 const BASE_URL = 'http://localhost:8080';
 
-const TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6InJpc2hhYmgiLCJleHAiOjE3ODk3MTAxNTcsImlkIjoxfQ.5HGypQ9wzUzI5AOKzvReBiDzOy9zCNsuBcayeKnak6g';
+const TOKEN = '';
 
 export default function () {
     const res = http.get(`${BASE_URL}/api/balance`, {

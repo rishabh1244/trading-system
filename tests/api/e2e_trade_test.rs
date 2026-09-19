@@ -185,18 +185,42 @@ async fn buy_order_matches_sell_order_end_to_end_via_api() {
 
     // buyer got 5 BTC, spent 500 INR; all reserved funds consumed on full fill
     assert_eq!(total_btc(&buyer_bal), Decimal::from(5), "buyer total BTC");
-    assert_eq!(total_inr(&buyer_bal), Decimal::from(9500), "buyer total INR");
-    assert_eq!(buyer_bal.reserved_btc, Decimal::ZERO, "buyer reserved BTC should be 0 after full fill");
-    assert_eq!(buyer_bal.reserved_inr, Decimal::ZERO, "buyer reserved INR should be 0 after full fill");
+    assert_eq!(
+        total_inr(&buyer_bal),
+        Decimal::from(9500),
+        "buyer total INR"
+    );
+    assert_eq!(
+        buyer_bal.reserved_btc,
+        Decimal::ZERO,
+        "buyer reserved BTC should be 0 after full fill"
+    );
+    assert_eq!(
+        buyer_bal.reserved_inr,
+        Decimal::ZERO,
+        "buyer reserved INR should be 0 after full fill"
+    );
 
     // seller side
     let resp = auth_get!(&app, seller_token, "/api/balance");
     assert_eq!(resp.status(), 200);
     let seller_bal: Balances = test::read_body_json(resp).await;
     assert_eq!(total_btc(&seller_bal), Decimal::from(5), "seller total BTC");
-    assert_eq!(total_inr(&seller_bal), Decimal::from(500), "seller total INR");
-    assert_eq!(seller_bal.reserved_btc, Decimal::ZERO, "seller reserved BTC should be 0 after full fill");
-    assert_eq!(seller_bal.reserved_inr, Decimal::ZERO, "seller reserved INR should be 0 after full fill");
+    assert_eq!(
+        total_inr(&seller_bal),
+        Decimal::from(500),
+        "seller total INR"
+    );
+    assert_eq!(
+        seller_bal.reserved_btc,
+        Decimal::ZERO,
+        "seller reserved BTC should be 0 after full fill"
+    );
+    assert_eq!(
+        seller_bal.reserved_inr,
+        Decimal::ZERO,
+        "seller reserved INR should be 0 after full fill"
+    );
 
     // cross-check via DB
     let (seller_total_btc, seller_total_inr) = get_total_assets(pool, &seller_user).await;
@@ -283,16 +307,32 @@ async fn partial_fill_sets_resting_order_via_api() {
     let buyer_bal: Balances = test::read_body_json(resp).await;
     // buyer total: 3 BTC received, 300 INR spent; 200 INR still reserved for resting order
     assert_eq!(total_btc(&buyer_bal), Decimal::from(3), "buyer total BTC");
-    assert_eq!(total_inr(&buyer_bal), Decimal::from(9700), "buyer total INR (10000 - 300 spent)");
-    assert_eq!(buyer_bal.reserved_inr, Decimal::from(200), "buyer reserved INR for resting order");
+    assert_eq!(
+        total_inr(&buyer_bal),
+        Decimal::from(9700),
+        "buyer total INR (10000 - 300 spent)"
+    );
+    assert_eq!(
+        buyer_bal.reserved_inr,
+        Decimal::from(200),
+        "buyer reserved INR for resting order"
+    );
 
     // seller side
     let resp = auth_get!(&app, seller_token, "/api/balance");
     assert_eq!(resp.status(), 200);
     let seller_bal: Balances = test::read_body_json(resp).await;
     assert_eq!(total_btc(&seller_bal), Decimal::from(7), "seller total BTC");
-    assert_eq!(total_inr(&seller_bal), Decimal::from(300), "seller total INR");
-    assert_eq!(seller_bal.reserved_btc, Decimal::ZERO, "seller reserved BTC fully consumed");
+    assert_eq!(
+        total_inr(&seller_bal),
+        Decimal::from(300),
+        "seller total INR"
+    );
+    assert_eq!(
+        seller_bal.reserved_btc,
+        Decimal::ZERO,
+        "seller reserved BTC fully consumed"
+    );
 
     // cross-check via DB
     let (seller_total_btc, seller_total_inr) = get_total_assets(pool, &seller_user).await;
@@ -359,7 +399,11 @@ async fn sell_order_rejected_on_insufficient_btc() {
 
     // total assets unchanged
     let (total_b, total_i) = get_total_assets(pool, &seller_user).await;
-    assert_eq!(total_b, Decimal::from(2), "BTC unchanged after rejected order");
+    assert_eq!(
+        total_b,
+        Decimal::from(2),
+        "BTC unchanged after rejected order"
+    );
     assert_eq!(total_i, Decimal::ZERO, "INR unchanged after rejected order");
 
     cleanup_user(pool, &seller_user).await;
@@ -390,7 +434,11 @@ async fn buy_order_rejected_on_insufficient_inr() {
     // total assets unchanged
     let (total_b, total_i) = get_total_assets(pool, &buyer_user).await;
     assert_eq!(total_b, Decimal::ZERO, "BTC unchanged after rejected order");
-    assert_eq!(total_i, Decimal::from(100), "INR unchanged after rejected order");
+    assert_eq!(
+        total_i,
+        Decimal::from(100),
+        "INR unchanged after rejected order"
+    );
 
     cleanup_user(pool, &buyer_user).await;
 }
@@ -463,7 +511,11 @@ async fn balance_and_orders_reflect_trade() {
     );
     let seller_bal: Balances = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(total_btc(&seller_bal), Decimal::from(5), "seller total BTC");
-    assert_eq!(total_inr(&seller_bal), Decimal::from(500), "seller total INR");
+    assert_eq!(
+        total_inr(&seller_bal),
+        Decimal::from(500),
+        "seller total INR"
+    );
 
     let resp = auth_get!(&app, buyer_token, "/api/balance");
     let status = resp.status();
@@ -476,7 +528,11 @@ async fn balance_and_orders_reflect_trade() {
     );
     let buyer_bal: Balances = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(total_btc(&buyer_bal), Decimal::from(5), "buyer total BTC");
-    assert_eq!(total_inr(&buyer_bal), Decimal::from(9500), "buyer total INR");
+    assert_eq!(
+        total_inr(&buyer_bal),
+        Decimal::from(9500),
+        "buyer total INR"
+    );
 
     // verify orders endpoint — seller's resting order is persisted as fulfilled
     let resp = auth_get!(&app, seller_token, "/api/my-orders");

@@ -25,7 +25,6 @@ pub fn get_pool() -> &'static PgPool {
 
             let pool = rt.block_on(async {
                 sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(10000)
                     .acquire_timeout(std::time::Duration::from_secs(20))
                     .connect(&database_url)
                     .await

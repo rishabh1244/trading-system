@@ -62,7 +62,7 @@ impl OrderBook {
         }
     }
 
-    pub async fn engine(&mut self, mut match_data: Order) -> EngineResult {
+    pub fn engine(&mut self, mut match_data: Order) -> EngineResult {
         let mut trades = TradeList { trades: Vec::new() };
         let mut appends: Option<Order> = None;
         let mut fulfilled_ids: Vec<i32> = Vec::new();
