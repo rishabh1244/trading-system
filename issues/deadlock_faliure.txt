@@ -1,4 +1,4 @@
-Deadlock = when two threads tries to access the same resource causing a loop  
+Deadlock = a state where two or more threads or processes are permanently stuck because each is waiting for a resource held by another  
 
 aight , so running the load test with 100 users gives us the following error 
 
@@ -19,19 +19,11 @@ and following bench marks
 
 the 0.32 percent fail rate is due to the following reason 
 
-1. reserve_*_balance (order_management.rs:143/159) locks the requester's own balance row and holds it until commit.
-2. Matching runs in memory.
-3. settle_trades (engine.rs:103) then updates the counterparties' rows.
+0. Suppose Bob already has an old resting BUY 2 @100, committed earlier, so his row is not locked.
 
-Example of sceanario :-
-  1. Alice : SELL , 5 BTC , 100 INR 
-  2. Bob   : BUY  , 5 BTC , 100 INR 
-
-  if these orders are concurrent , then there is a chance that both the settlement operation that is executed to settle there trade can run for both parties and select both there row's (Postgresql lock rows when any operation is being performed on it ) 
-    Transaction A : 1. UPDATE Alice
-                    2. UPDATE Bob
-    
-    Transaction B : 1. UPDATE Bob
-                    2. UPDATE Alice
-
-    which causes the issue , now alice is waiting for bob row to remove the lock , and bob is waiting for alice's row to remove the lock , which creates the loop 
+1. Alice's transaction (SELL 5 @100) runs the reserve step and locks Alice's row.
+2. Bob's new transaction (BUY 3 @101) runs the reserve step and locks Bob's row. This happens before the book mutex, so it can be at any moment.
+3. Alice takes the book mutex and matches Bob's old resting BUY for 2. The remaining 3 rest in the book, and the mutex is released.
+4. Bob's new order takes the mutex and matches Alice's resting 3.
+5. Alice's transaction runs settle_trades and needs Bob's row for the first trade. Bob's new transaction holds it, so she waits.
+6. Bob's transaction runs settle_trades and needs Alice's row for the second trade. Alice's transaction holds it, so he waits.
