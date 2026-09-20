@@ -1,4 +1,4 @@
-Centralized Trading System
+#Centralized Trading System
 
 A production-inspired centralized cryptocurrency trading system built from scratch in Rust.
 
