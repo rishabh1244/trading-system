@@ -58,9 +58,9 @@ The order book is maintained in memory for fast matching.
 ```text
 Bids                         Asks
 
-100.50 → [Order, Order]      100.60 → [Order]
-100.40 → [Order]             100.70 → [Order, Order]
-100.30 → [Order]             100.80 → [Order]
+100.50 → [Order1, Order2]      100.60 → [Order5]
+100.40 → [Order3]             100.70 → [Order6, Order7]
+100.30 → [Order4]             100.80 → [Order8]
 ```
 
 Orders at the same price are processed in FIFO order.
@@ -128,7 +128,7 @@ Failure rate:            0.29%
 p95 latency:            ~989 ms
 ```
 
-The remaining failed requests are being investigated. The current load test exposes a deadlock under concurrent load, which is being worked on.
+The remaining failed are caused due to deadlock under concurrent load, which is being worked on. (for more info see issues/deadlock_faliure.txt) 
 
 ## Performance Instrumentation
 
@@ -231,7 +231,6 @@ All financial values use `rust_decimal` instead of floating-point.
 
 - Rust
 - PostgreSQL
-- Docker (optional)
 - SQLx CLI
 - k6 (for load testing)
 
@@ -266,6 +265,16 @@ cargo run
 
 ```bash
 cargo test
+```
+### Run k6 load tests
+
+## generate seed users for test
+```bash
+python3 ./tests/seed_users.py
+```
+## run the test with seed credentials
+```bash
+k6 run ./tests/orderbook_loadtest.ts
 ```
 
 ## Project Structure
