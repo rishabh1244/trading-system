@@ -1,6 +1,6 @@
-Yep — I'd keep your tone and structure, but clean up the formatting and add the important engineering sections. You can basically paste this straight into `README.md`:
 
-````markdown
+
+
 # Centralized Trading System
 
 <img width="6365" height="4412" alt="Untitled-2026-01-30-0959 excalidraw(1)" src="https://github.com/user-attachments/assets/6e9c23c1-d833-416e-8689-1804d9cb9c67" />
@@ -12,13 +12,8 @@ The project focuses on order matching, concurrency, transactional consistency, r
 ## Tech Stack
 
 - Rust
-- Actix Web
 - PostgreSQL
-- SQLx
 - WebSockets
-- JWT Authentication
-- `rust_decimal`
-- Docker
 - Grafana k6
 
 ## Architecture
@@ -36,7 +31,7 @@ The system is divided into several components:
 
 A simplified order flow looks like:
 
-```text
+```
 Client
   ↓
 API Gateway
