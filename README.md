@@ -1,13 +1,14 @@
 
 
+<p align="center">
 
 # Centralized Trading System
 
+</p>
+
 <img width="6365" height="4412" alt="Untitled-2026-01-30-0959 excalidraw(1)" src="https://github.com/user-attachments/assets/6e9c23c1-d833-416e-8689-1804d9cb9c67" />
 
-A production-inspired centralized cryptocurrency trading system built from scratch in Rust.
-
-The project focuses on order matching, concurrency, transactional consistency, real-time market data, and backend performance.
+A centralized cryptocurrency trading system built in Rust. Handles order matching, balance management, trade settlement, and real-time market data over WebSockets.
 
 ## Tech Stack
 
@@ -18,38 +19,37 @@ The project focuses on order matching, concurrency, transactional consistency, r
 
 ## Architecture
 
-The system is divided into several components:
+```
+API Gateway (actix-web :8080)
+  ├── JWT Auth Middleware
+  ├── Order Management Service (balance reservation, input validation)
+  │     └── Matching Engine (in-memory order book, price-time priority)
+  │           └── Trading Engine (settlement, DB persistence)
+  ├── Market Data Service (last price, WebSocket broadcast :7878)
+  └── Metrics (per-stage latency tracking)
+```
 
-- **API Gateway & Auth** — entry point for client requests, authentication, rate limiting and WebSocket connections.
-- **Order Management Service** — validates incoming orders, verifies balances, trading pairs, quantities and other constraints.
-- **Matching Engine** — maintains the order book and matches BUY/SELL orders using price-time priority.
-- **Trading Engine** — handles trade execution, settlement, balance updates and persistence.
-- **Market Data Service** — maintains market statistics, recent trades and real-time market information.
-- **PostgreSQL** — persistent storage for users, balances, orders and trades.
+PostgreSQL stores users, balances, orders, and trades. The order book lives in memory for fast matching. Only resting (unmatched) orders are persisted.
 
 ## Order Flow
-
-A simplified order flow looks like:
 
 ```
 Client
   ↓
-API Gateway
+API Gateway (JWT auth)
   ↓
-Order Management
+Order Management (validate input, begin DB transaction)
   ↓
-Balance Reservation
+Balance Reservation (atomic UPDATE: balance → reserved)
   ↓
-Matching Engine
+Matching Engine (price-time priority, partial/full fills)
   ↓
-Trade Execution
+Trade Settlement (credit buyer BTC, seller INR, insert trades)
   ↓
-Settlement
+Commit Transaction
   ↓
-PostgreSQL
-  ↓
-Market Data / WebSocket Updates
-````
+WebSocket Broadcast (last trade price to all clients)
+```
 
 ## Order Book
 
@@ -65,33 +65,32 @@ Bids                         Asks
 
 Orders at the same price are processed in FIFO order.
 
-The order book uses Rust's `BTreeMap` for price-level organization and `VecDeque` for maintaining FIFO ordering within each price level.
+The order book uses `BTreeMap` for price-level organization and `VecDeque` for FIFO ordering within each price level.
 
 ## Matching Engine
 
 The matching engine supports:
 
-* BUY and SELL orders
-* Price-time priority
-* Partial fills
-* Full fills
-* Limit orders
-* Order cancellation
-* Maintaining bid and ask price levels
+- BUY and SELL orders
+- Price-time priority
+- Partial fills
+- Full fills
+- Limit orders
+- Maintaining bid and ask price levels
 
 The matching engine operates on the in-memory order book, while trade and account state are persisted to PostgreSQL.
 
 ## Concurrency & Consistency
 
-One of the more challenging parts of the project was keeping balances, orders and trades consistent when multiple orders are processed concurrently.
+Keeping balances, orders and trades consistent when multiple orders come in at the same time is the hard part.
 
-Simply checking a user's balance before placing an order is not sufficient when multiple transactions can observe and modify the same state at the same time.
+Simply checking a user's balance before placing an order is not enough when multiple transactions can read and modify the same state concurrently.
 
-The system therefore uses transactional balance reservation and settlement to ensure that state changes across balances, orders and trades remain consistent.
+The system uses transactional balance reservation and settlement so that changes across balances, orders and trades stay consistent.
 
-A major part of development involved identifying concurrency issues and defining the correct boundaries between:
+The main concurrency boundaries are:
 
-```text
+```
 Balance Reservation
         ↓
 Order Matching
@@ -103,24 +102,22 @@ Settlement
 Persistence
 ```
 
-This was one of the main reasons for introducing database transactions and synchronization around shared in-memory state.
+The in-memory order book is behind `Arc<Mutex<OrderBook>>` and market data behind `Arc<Mutex<MarketData>>`. Balance reservation and settlement happen inside a PostgreSQL transaction for atomicity.
 
 ## Testing
 
-The project includes:
-
-* Unit tests
-* Integration tests
-* End-to-end API tests
-* Concurrent order scenarios
-* Database transaction tests
-* Load testing with k6
+- Unit tests (order book matching logic)
+- Integration tests (full flow with real DB)
+- End-to-end API tests (HTTP requests through the full pipeline)
+- Concurrent order scenarios
+- Database transaction tests
+- Load testing with k6
 
 ## Load Testing
 
-Load testing is performed using **Grafana k6**.
+Load testing is done with **Grafana k6**.
 
-One of the current k6 runs processed:
+One of the k6 runs so far:
 
 ```text
 Total requests/checks: 20,355
@@ -131,21 +128,13 @@ Failure rate:            0.29%
 p95 latency:            ~989 ms
 ```
 
-### Current Status
-
-The remaining failed requests are currently being investigated.
-
-The current load test exposes a deadlock under concurrent load, which is being worked on.
-
-The failure is intentionally documented here rather than hidden, since identifying and resolving concurrency issues is an important part of the development process.
+The remaining failed requests are being investigated. The current load test exposes a deadlock under concurrent load, which is being worked on.
 
 ## Performance Instrumentation
 
-The application includes latency instrumentation for different parts of the order processing pipeline.
+The application tracks latency for different stages of the order processing pipeline instead of just measuring the whole HTTP request.
 
-The goal is to measure individual stages rather than treating the entire HTTP request as a black box.
-
-Current instrumentation includes operations such as:
+Current instrumentation covers:
 
 ```text
 Database transaction
@@ -156,39 +145,45 @@ Trade execution
 Settlement
 ```
 
-This makes it possible to identify where latency is being introduced and distinguish between database, synchronization and application-level bottlenecks.
+This helps identify where latency is coming from — database, synchronization, or application code.
 
 ## API
+
+All endpoints are prefixed with `/api/`.
 
 ### Authentication
 
 ```http
-POST /login
-POST /register
+POST /api/register
+POST /api/login
 ```
 
 ### Orders
 
 ```http
-POST   /order
-DELETE /order/:id
+POST /api/order
 ```
 
-### Account & Market Data
+### Account
 
 ```http
-GET /balances
-GET /market-data
-GET /recent-trades
+GET  /api/balance
+GET  /api/my-orders
+GET  /api/orderbook
+```
+
+### Metrics
+
+```http
+GET /metrics
 ```
 
 ### WebSockets
 
-WebSocket connections provide real-time updates for:
+WebSocket server runs on `ws://127.0.0.1:7878` and broadcasts:
 
-* Price updates
-* Order status updates
-* Trade updates
+- Last trade price
+- Trade updates
 
 ## Database
 
@@ -198,43 +193,47 @@ The database stores:
 
 ```text
 Users
- └── user_id
- └── username
- └── password
+ └── id (SERIAL PRIMARY KEY)
+ └── username (TEXT UNIQUE)
+ └── password_hash (TEXT)
+ └── created_at (TIMESTAMP)
 
 Balances
- └── user_id
- └── balance_btc
- └── balance_inr
+ └── user_id (INTEGER REFERENCES users)
+ └── balance_btc (NUMERIC)
+ └── balance_inr (NUMERIC)
+ └── reserved_btc (NUMERIC)
+ └── reserved_inr (NUMERIC)
 
 Orders
- └── order_id
- └── user_id
- └── side
- └── quantity
- └── price
- └── status
+ └── order_id (SERIAL PRIMARY KEY)
+ └── user_id (INTEGER REFERENCES users)
+ └── side (TEXT: 'buy' or 'sell')
+ └── qty (NUMERIC)
+ └── price (NUMERIC)
+ └── dateadded (TIMESTAMP)
+ └── status (TEXT)
 
 Trades
- └── trade_id
- └── buyer_id
- └── seller_id
- └── quantity
- └── price
- └── timestamp
+ └── trade_id (SERIAL PRIMARY KEY)
+ └── buyer_id (INTEGER REFERENCES users)
+ └── seller_id (INTEGER REFERENCES users)
+ └── qty (NUMERIC)
+ └── price (NUMERIC)
+ └── timestamp (TIMESTAMP)
 ```
 
-Financial values are represented using `rust_decimal` rather than floating-point arithmetic.
+All financial values use `rust_decimal` instead of floating-point.
 
 ## Running Locally
 
 ### Requirements
 
-* Rust
-* PostgreSQL
-* Docker (optional)
-* SQLx CLI
-* k6 (for load testing)
+- Rust
+- PostgreSQL
+- Docker (optional)
+- SQLx CLI
+- k6 (for load testing)
 
 ### Clone the repository
 
@@ -245,7 +244,7 @@ cd trading-system
 
 ### Configure environment variables
 
-Create a `.env` file containing the required database and application configuration.
+Create a `.env` file with the required database and application configuration.
 
 ```bash
 cp .env.example .env
@@ -273,42 +272,61 @@ cargo test
 
 ```text
 src/
-├── ...
-tests/
-├── ...
-migrations/
-├── ...
-```
+├── main.rs
+├── lib.rs
+├── metrics.rs
+├── api_gateway/      (HTTP server, route registration, DB pool, metrics endpoint)
+├── auth/             (register, login handlers)
+├── middleware/        (JWT Bearer token validation)
+├── domain/           (data types: Order, Trade, User, Balances, MarketData)
+├── OMS/              (order management, balance reservation)
+├── matching_engine/  (in-memory order book, price-time priority matching)
+├── trading_engine/   (settlement, DB persistence)
+└── MDS/              (market data, WebSocket broadcast)
 
-The project structure is organized around the API layer, order management, matching engine, trading/settlement logic, market data and persistence.
+tests/
+├── orderbook_test.rs
+├── e2e_orderbook_test.rs
+├── metrics_test.rs
+├── api/
+│   ├── auth_test.rs
+│   └── e2e_trade_test.rs
+├── loadtest.ts
+├── orderbook_loadtest.ts
+└── seed_users.py
+
+migrations/
+├── 01_create_user.sql
+├── 02_create_balances.sql
+├── 03_create_orders.sql
+└── 04_create_trades.sql
+```
 
 ## What I Learned
 
-This project started as an attempt to build a trading system, but the most interesting problems ended up being around systems correctness.
+This project started as an attempt to build a trading system, but the interesting problems ended up being around systems correctness.
 
 Some of the main things I worked through:
 
-* Concurrent state modification
-* Database transaction boundaries
-* Atomic balance reservation
-* Order-book synchronization
-* Price-time priority matching
-* Financial arithmetic using `Decimal`
-* Failure handling
-* End-to-end testing
-* Load testing
-* Latency instrumentation
-* Identifying synchronization bottlenecks
+- Concurrent state modification
+- Database transaction boundaries
+- Atomic balance reservation
+- Order-book synchronization
+- Price-time priority matching
+- Financial arithmetic using `Decimal`
+- Failure handling
+- End-to-end testing
+- Load testing
+- Latency instrumentation
+- Identifying synchronization bottlenecks
 
-The project also gave me a much better understanding of the difference between simply building an API and engineering a stateful system where multiple components have to remain consistent.
+The project gave me a better understanding of the difference between building an API and engineering a stateful system where multiple components have to stay consistent.
 
 ## Future Work
 
-* [ ] Resolve the remaining concurrency/deadlock issue
-* [ ] Improve matching-engine benchmarks
-* [ ] Reduce order-path latency
-* [ ] Expand concurrent stress testing
-* [ ] Improve failure recovery
-* [ ] Add more detailed performance benchmarks
-
-
+- [ ] Resolve the remaining concurrency/deadlock issue
+- [ ] Improve matching-engine benchmarks
+- [ ] Reduce order-path latency
+- [ ] Expand concurrent stress testing
+- [ ] Improve failure recovery
+- [ ] Add more detailed performance benchmarks
