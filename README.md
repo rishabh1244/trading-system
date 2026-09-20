@@ -266,11 +266,11 @@ cargo test
 ```
 ### Run k6 load tests
 
-#### generate seed users for test
+#### Generate seed users for test
 ```bash
 python3 ./tests/seed_users.py
 ```
-#### run the test with seed credentials
+#### Run the test with seed credentials
 ```bash
 k6 run ./tests/orderbook_loadtest.ts
 ```
