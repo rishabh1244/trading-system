@@ -200,6 +200,7 @@ pub async fn fetch_order(
     }
 
     let settle_start = Instant::now();
+
     match settle_trades(
         claims.id,
         &order,
