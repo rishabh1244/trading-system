@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 pub async fn settle_trades(
     user_id: i32,
     incoming: &Order,
-    trade: TradeList,
+    trade: &TradeList,
     appends: Option<Order>,
     fulfilled_ids: Vec<i32>,
     tx: &mut Transaction<'_, Postgres>,

@@ -1,13 +1,13 @@
 use crate::domain::order::Order;
-use crate::domain::trades::{Trade, TradeList};
-
+use crate::domain::trades::Trade;
+use crate::domain::trades::TradeList;
 use rust_decimal::Decimal;
 use std::cmp;
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
-/// Result of a single pass through the matching engine.
+// Result of a single pass through the matching engine.
 pub struct EngineResult {
     pub trades: TradeList,
     pub appends: Option<Order>,
@@ -20,6 +20,36 @@ pub struct OrderBook {
 }
 
 impl OrderBook {
+    fn TradeToOrder(side: String, req: &Trade) -> Order {
+        let mut id = req.seller_id;
+        if side == "BUY" {
+            id = req.buyer_id;
+        }
+        Order {
+            order_id: None,
+            user_id: id,
+            side,
+            qty: req.qty.into(),
+            price: req.price.into(),
+            status: "pending".to_string(),
+        }
+    }
+    pub fn rollBack(&mut self, tradeData: &TradeList) {
+        // in case of trade failure this function is called
+        for trade in tradeData.trades.iter() {
+            // the selling qty should be stored in orderbook bids BTreeMap as it is
+
+            let bidOrder = OrderBook::TradeToOrder("BUY".to_string(), trade);
+            if let Some(val) = self.bids.get_mut(&trade.price) {
+                val.push_front(bidOrder);
+            };
+
+            let askOrder = OrderBook::TradeToOrder("SELL".to_string(), trade);
+            if let Some(val) = self.asks.get_mut(&trade.price) {
+                val.push_front(askOrder);
+            };
+        }
+    }
     pub fn new() -> Self {
         Self {
             bids: BTreeMap::new(),

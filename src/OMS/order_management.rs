@@ -77,7 +77,6 @@ pub fn ConvertToOrder(req: &OrderRequest, user_id: i32) -> Order {
         status: "pending".to_string(),
     }
 }
-
 fn lock_book(orderbook: &Arc<Mutex<OrderBook>>) -> Result<MutexGuard<'_, OrderBook>, HttpResponse> {
     orderbook.lock().map_err(|_| {
         HttpResponse::InternalServerError()
@@ -204,7 +203,7 @@ pub async fn fetch_order(
     match settle_trades(
         claims.id,
         &order,
-        result.trades,
+        &result.trades,
         result.appends,
         result.fulfilled_ids,
         &mut tx,
@@ -232,8 +231,19 @@ pub async fn fetch_order(
             metrics.record_order_total(handler_start.elapsed().as_micros() as u64);
             HttpResponse::Ok().json(balances)
         }
-        Err(e) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"fail_reason": e.to_string()})),
+        Err(e) => {
+            // if the trade fails the orderbook data should be restored
+            {
+                let mut ob = match lock_book(&orderbook) {
+                    Ok(g) => g,
+                    Err(resp) => return resp,
+                };
+
+                ob.rollBack(&result.trades);
+            }
+            HttpResponse::InternalServerError()
+                .json(serde_json::json!({"fail_reason": e.to_string()}))
+        }
     }
 }
 #[get("/api/balance")]
