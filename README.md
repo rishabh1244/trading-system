@@ -1,10 +1,8 @@
 
 
-<p align="center">
-
-# Centralized Trading System
-
-</p>
+<h1 align="center">
+  Centralized Trading System
+</h1>
 
 <img width="6365" height="4412" alt="Untitled-2026-01-30-0959 excalidraw(1)" src="https://github.com/user-attachments/assets/6e9c23c1-d833-416e-8689-1804d9cb9c67" />
 
@@ -268,11 +266,11 @@ cargo test
 ```
 ### Run k6 load tests
 
-## generate seed users for test
+#### Generate seed users for test
 ```bash
 python3 ./tests/seed_users.py
 ```
-## run the test with seed credentials
+#### Run the test with seed credentials
 ```bash
 k6 run ./tests/orderbook_loadtest.ts
 ```
