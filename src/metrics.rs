@@ -51,6 +51,8 @@ impl From<&StageMetric> for StageMetricJson {
 pub struct OrderMetricsJson {
     pub order_total: StageMetricJson,
     pub tx_begin: StageMetricJson,
+    pub pool_acquire: StageMetricJson,
+    pub begin: StageMetricJson,
     pub reserve_balance: StageMetricJson,
     pub orderbook_lock: StageMetricJson,
     pub matching: StageMetricJson,
@@ -62,6 +64,8 @@ pub struct OrderMetricsJson {
 struct OrderMetrics {
     order_total: StageMetric,
     tx_begin: StageMetric,
+    pool_acquire: StageMetric,
+    begin: StageMetric,
     reserve_balance: StageMetric,
     orderbook_lock: StageMetric,
     matching: StageMetric,
@@ -77,6 +81,12 @@ impl From<&OrderMetrics> for OrderMetricsJson {
             },
             tx_begin: StageMetricJson {
                 ..StageMetricJson::from(&m.tx_begin)
+            },
+            pool_acquire: StageMetricJson {
+                ..StageMetricJson::from(&m.pool_acquire)
+            },
+            begin: StageMetricJson {
+                ..StageMetricJson::from(&m.begin)
             },
             reserve_balance: StageMetricJson {
                 ..StageMetricJson::from(&m.reserve_balance)
@@ -119,6 +129,14 @@ impl MetricsCollector {
 
     pub fn record_tx_begin(&self, us: u64) {
         self.add(|m| &mut m.tx_begin, us);
+    }
+
+    pub fn record_pool_acquire(&self, us: u64) {
+        self.add(|m| &mut m.pool_acquire, us);
+    }
+
+    pub fn record_begin(&self, us: u64) {
+        self.add(|m| &mut m.begin, us);
     }
 
     pub fn record_reserve_balance(&self, us: u64) {
@@ -195,6 +213,8 @@ mod tests {
         c.record_order_total(1000);
         c.record_order_total(3000);
         c.record_tx_begin(500);
+        c.record_pool_acquire(100);
+        c.record_begin(50);
 
         let snap = c.snapshot();
         assert_eq!(snap.order_total.count, 2);
@@ -202,6 +222,12 @@ mod tests {
 
         assert_eq!(snap.tx_begin.count, 1);
         assert!((snap.tx_begin.avg_ms - 0.5).abs() < 0.01);
+
+        assert_eq!(snap.pool_acquire.count, 1);
+        assert!((snap.pool_acquire.avg_ms - 0.1).abs() < 0.01);
+
+        assert_eq!(snap.begin.count, 1);
+        assert!((snap.begin.avg_ms - 0.05).abs() < 0.01);
 
         assert_eq!(snap.reserve_balance.count, 0);
     }

@@ -8,7 +8,7 @@ use crate::trading_engine::engine::settle_trades;
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, post, web};
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{Connection, PgPool, Postgres, Transaction};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
@@ -128,8 +128,20 @@ pub async fn fetch_order(
             .json(serde_json::json!("price of asset must be valid "));
     }
 
-    let tx_start = Instant::now(); // tx_begin starts 
-    let mut tx = match pool.begin().await {
+    let tx_start = Instant::now();
+
+    let acquire_start = Instant::now();
+    let mut conn = match pool.acquire().await {
+        Ok(conn) => conn,
+        Err(e) => {
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"fail_reason": e.to_string()}));
+        }
+    };
+    metrics.record_pool_acquire(acquire_start.elapsed().as_micros() as u64);
+
+    let begin_start = Instant::now();
+    let mut tx = match conn.begin().await {
         Ok(tx) => tx,
         Err(e) => {
             return HttpResponse::InternalServerError()
@@ -138,7 +150,8 @@ pub async fn fetch_order(
     };
     // sqlx::query("select pg_advisory_xact_lock(1)").execute(&mut *tx).await;
 
-    metrics.record_tx_begin(tx_start.elapsed().as_micros() as u64); // tx_begin ends 
+    metrics.record_begin(begin_start.elapsed().as_micros() as u64);
+    metrics.record_tx_begin(tx_start.elapsed().as_micros() as u64);
 
     if req_body.side == "SELL" {
         match reserve_sell_balance(&mut tx, claims.id, req_body.qty, &metrics).await {
