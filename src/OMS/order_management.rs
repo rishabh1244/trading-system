@@ -136,9 +136,8 @@ pub async fn fetch_order(
                 .json(serde_json::json!({"fail_reason": e.to_string()}));
         }
     };
-    sqlx::query("SELECT pg_advisory_xact_lock(1)")
-        .execute(&mut *tx)
-        .await;
+    // sqlx::query("select pg_advisory_xact_lock(1)").execute(&mut *tx).await;
+
     metrics.record_tx_begin(tx_start.elapsed().as_micros() as u64); // tx_begin ends 
 
     if req_body.side == "SELL" {

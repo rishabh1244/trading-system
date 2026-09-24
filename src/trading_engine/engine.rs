@@ -22,11 +22,17 @@ pub async fn settle_trades(
         involved.insert(trade.seller_id);
     }
 
+    // Lock every involved balances row in a fixed global order (user_id ASC)
+    // BEFORE any mutation, so concurrent settle_trades calls cannot form a
+    // lock cycle (Alice holds A→wants B, Bob holds B→wants A).
+    let mut involved: Vec<i32> = involved.into_iter().collect();
+    involved.sort_unstable();
+
     let mut balances: HashMap<i32, Balances> = HashMap::new();
     for id in involved {
         let balance: Balances = sqlx::query_as::<_, Balances>(
             "SELECT user_id, balance_btc, balance_inr, reserved_btc, reserved_inr \
-             from balances where user_id=$1",
+             FROM balances WHERE user_id=$1 FOR UPDATE",
         )
         .bind(id)
         .fetch_one(&mut **tx)
