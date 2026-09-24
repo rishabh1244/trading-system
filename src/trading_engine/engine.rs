@@ -19,6 +19,7 @@ pub async fn settle_trades(
     involved.insert(user_id);
     for trade in trade.trades.iter() {
         involved.insert(trade.buyer_id);
+
         involved.insert(trade.seller_id);
     }
 
@@ -32,7 +33,7 @@ pub async fn settle_trades(
     for id in involved {
         let balance: Balances = sqlx::query_as::<_, Balances>(
             "SELECT user_id, balance_btc, balance_inr, reserved_btc, reserved_inr \
-             FROM balances WHERE user_id=$1 FOR UPDATE",
+                 FROM balances WHERE user_id=$1 FOR UPDATE",
         )
         .bind(id)
         .fetch_one(&mut **tx)

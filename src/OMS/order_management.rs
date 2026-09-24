@@ -148,7 +148,7 @@ pub async fn fetch_order(
                 .json(serde_json::json!({"fail_reason": e.to_string()}));
         }
     };
-    // sqlx::query("select pg_advisory_xact_lock(1)").execute(&mut *tx).await;
+    // sqlx::query("select pg_advisory_xact_lock(1)")    .execute(&mut *tx).await;
 
     metrics.record_begin(begin_start.elapsed().as_micros() as u64);
     metrics.record_tx_begin(tx_start.elapsed().as_micros() as u64);

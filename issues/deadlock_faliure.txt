@@ -102,7 +102,34 @@ the 0.32 percent fail rate is due to the following reason
 
 Solution : 
 
+1)
       sqlx::query("SELECT pg_advisory_xact_lock(1)")
         .execute(&mut *tx)
 introducing a DB lock before each transaction in order_management can fix the issue but it dose compromises concurrency and speed 
 100 concurrent requests -> 1 req at a time 
+
+    Benchmark :
+
+    http_req_duration
+     ✓ 'p(95)<1800' p(95)= 1.09s
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+
+2) lock the rows responsible for the current trade in trading_engine/engine.rs 
+      Benchmark : 
+
+    http_req_duration
+    ✓ 'p(95)<1800' p(95)=251.84ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.07%
+
+faliure might be due to Reservation Db lock and settle_trades db lock collision 
+
+3) applying both locks ?? 
+  ✓ 'p(95)<1800' p(95)=1.05s
+    faliure rate = 0
+
