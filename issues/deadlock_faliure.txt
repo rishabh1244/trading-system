@@ -97,3 +97,12 @@ the 0.32 percent fail rate is due to the following reason
 | The aborted tx is rolled back in the DB, but the in-memory            |
 | order book keeps the changes it made in steps 3 / 4.                  |
 +-----------------------------------------------------------------------+
+
+
+
+Solution : 
+
+      sqlx::query("SELECT pg_advisory_xact_lock(1)")
+        .execute(&mut *tx)
+introducing a DB lock before each transaction in order_management can fix the issue but it dose compromises concurrency and speed 
+100 concurrent requests -> 1 req at a time 

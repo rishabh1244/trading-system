@@ -242,7 +242,7 @@ pub async fn fetch_order(
                     Err(resp) => return resp,
                 };
 
-                ob.rollBack(&result.trades);
+                //         ob.rollBack(&result.trades);
             }
             HttpResponse::InternalServerError()
                 .json(serde_json::json!({"fail_reason": e.to_string()}))
