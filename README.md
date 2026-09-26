@@ -119,11 +119,13 @@ One of the k6 runs so far:
 
 ```text
 Total requests/checks: 20,355
-Successful:             20,294
-Failed:                     61
-Failure rate:            0.29%
+    http_req_duration
+    ✓ 'p(95)<1800' p(95)=251.84ms
 
-p95 latency:            ~989 ms
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.07%
+
+
 ```
 
 The remaining failed are caused due to deadlock under concurrent load, which is being worked on. (for more info see issues/deadlock_faliure.txt) 
