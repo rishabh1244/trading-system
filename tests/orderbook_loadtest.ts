@@ -16,10 +16,11 @@ export const options = {
   },
 };
 
-const BASE_URL = 'http://localhost:8080';
+// const BASE_URL = 'http://localhost:8080';
+const BASE_URL="http://192.168.29.247:8080"
 
 const creds: { username: string; password: string; role: string }[] =
-  JSON.parse(open('./loadtest_users.json'));
+  JSON.parse(open('./loadtest_users2.json'));
 
 interface ActiveUser {
   username: string;

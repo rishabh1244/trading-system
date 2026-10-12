@@ -9,11 +9,13 @@ import urllib.request
 import urllib.error
 
 BASE_URL = os.environ.get("LOADTEST_URL", "http://localhost:8080")
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgres://localhost:5432/trading_engine")
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "postgres://localhost:5432/trading_engine"
+)
 NUM_USERS = 100
 NUM_SELLERS = 50
-SELLER_BTC = 1000
-BUYER_INR = 10_000_000
+SELLER_BTC = 10000000000000000000000000
+BUYER_INR = 10_000_00000000000000000000
 OUT_PATH = os.path.join(os.path.dirname(__file__), "loadtest_users.json")
 
 users = []
@@ -46,7 +48,9 @@ for u in users:
         sql += f"INSERT INTO balances (user_id, balance_btc, balance_inr, reserved_btc, reserved_inr) VALUES ((SELECT id FROM users WHERE username = '{u['username']}'), 0, {BUYER_INR}, 0, 0); "
 
 print("\nSetting balances via psql...")
-result = subprocess.run(["psql", DATABASE_URL, "-c", sql], capture_output=True, text=True)
+result = subprocess.run(
+    ["psql", DATABASE_URL, "-c", sql], capture_output=True, text=True
+)
 if result.returncode != 0:
     print(f"psql error: {result.stderr}", file=sys.stderr)
     sys.exit(1)
