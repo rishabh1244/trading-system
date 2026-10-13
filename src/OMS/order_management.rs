@@ -12,6 +12,7 @@ use sqlx::{Connection, PgPool, Postgres, Transaction};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
+#[tracing::instrument(skip(tx, metrics), fields(user_id, qty))]
 pub async fn reserve_sell_balance(
     tx: &mut Transaction<'_, Postgres>,
     user_id: i32,
@@ -39,6 +40,7 @@ pub async fn reserve_sell_balance(
     Ok(result.rows_affected())
 }
 
+#[tracing::instrument(skip(tx, metrics), fields(user_id, qty, price))]
 pub async fn reserve_buy_balance(
     tx: &mut Transaction<'_, Postgres>,
     user_id: i32,
@@ -93,6 +95,7 @@ fn lock_market(
     })
 }
 
+#[tracing::instrument(skip_all, name = "place_order")]
 #[post("/api/order")]
 pub async fn fetch_order(
     req: HttpRequest,

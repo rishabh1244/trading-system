@@ -7,6 +7,10 @@ use rust_decimal::Decimal;
 use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
 
+#[tracing::instrument(
+    skip_all,
+    fields(user_id, side = %incoming.side, fills = trade.trades.len())
+)]
 pub async fn settle_trades(
     user_id: i32,
     incoming: &Order,

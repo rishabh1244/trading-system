@@ -6,4 +6,5 @@ pub mod metrics;
 pub mod middleware;
 pub mod MDS;
 pub mod OMS;
+pub mod telemetry;
 pub mod trading_engine;

@@ -6,6 +6,7 @@ mod domain;
 mod matching_engine;
 mod metrics;
 mod middleware;
+mod telemetry;
 mod trading_engine;
 use api_gateway::api;
 use api_gateway::db;
@@ -34,10 +35,7 @@ async fn startup() -> (PgPool, Arc<Mutex<OrderBook>>) {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
-    tracing_subscriber::fmt()
-        .with_target(false)
-        .with_thread_ids(true)
-        .init();
+    let tracer_provider = telemetry::init_telemetry();
 
     let market = Arc::new(Mutex::new(MarketData::new()));
     let socket_server = Arc::new(SocketServer::new());
@@ -51,5 +49,11 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    api::api_gateway(socket_server, market, orderbook, pool, metrics).await
+    let result = api::api_gateway(socket_server, market, orderbook, pool, metrics).await;
+
+    if let Err(e) = tracer_provider.shutdown() {
+        eprintln!("failed to shutdown tracer provider: {e}");
+    }
+
+    result
 }

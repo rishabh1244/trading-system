@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use actix_cors::Cors;
 use actix_web::{App, HttpServer, web};
 use actix_web_httpauth::middleware::HttpAuthentication;
+use opentelemetry_instrumentation_actix_web::RequestTracing;
 
 const PORT: u16 = 8080;
 
@@ -26,6 +27,7 @@ pub async fn api_gateway(
         let auth = HttpAuthentication::bearer(validator);
         let cors = Cors::permissive();
         App::new()
+            .wrap(RequestTracing::new())
             .wrap(cors)
             .app_data(web::Data::new(Some(pool.clone())))
             .app_data(web::Data::new(orderbook.clone()))

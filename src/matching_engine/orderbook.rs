@@ -92,6 +92,10 @@ impl OrderBook {
         }
     }
 
+    #[tracing::instrument(
+        skip_all,
+        fields(side = %match_data.side, qty = %match_data.qty, price = %match_data.price)
+    )]
     pub fn engine(&mut self, mut match_data: Order) -> EngineResult {
         let mut trades = TradeList { trades: Vec::new() };
         let mut appends: Option<Order> = None;
