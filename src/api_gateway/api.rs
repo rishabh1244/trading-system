@@ -1,5 +1,5 @@
 use crate::OMS::order_management::{display_orderbook, fetch_order, get_balance, get_my_orders};
-use crate::api_gateway::metrics_handler::get_metrics;
+use crate::api_gateway::metrics_handler::{get_metrics, get_metrics_json};
 use crate::auth;
 use crate::domain::market::{MarketData, SocketServer};
 use crate::matching_engine::orderbook::OrderBook;
@@ -35,6 +35,7 @@ pub async fn api_gateway(
             .app_data(web::Data::new(socket_server.clone()))
             .app_data(web::Data::new(metrics.clone()))
             .service(get_metrics)
+            .service(get_metrics_json)
             .service(auth::login::login_user)
             .service(auth::register::register_user)
             .service(

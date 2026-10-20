@@ -115,6 +115,16 @@ The in-memory order book is behind `Arc<Mutex<OrderBook>>` and market data behin
 
 Load testing is done with **Grafana k6**.
 
+To verify that Prometheus is scraping the running application:
+
+```bash
+k6 run tests/prometheus_loadtest.ts
+```
+
+The application must be running and Prometheus must have a scrape job named
+`trading_engine`. Override endpoints with `APP_URL` and `PROMETHEUS_URL` when
+needed.
+
 One of the k6 runs so far:
 
 ```text
@@ -176,6 +186,18 @@ GET  /api/orderbook
 
 ```http
 GET /metrics
+GET /metrics/json
+```
+
+`/metrics` exposes Prometheus text-format metrics. Configure Prometheus to scrape
+the application, rather than sending metrics to Prometheus port `9090`:
+
+```yaml
+scrape_configs:
+  - job_name: trading_engine
+    static_configs:
+      - targets: ["127.0.0.1:8080"]
+    metrics_path: /metrics
 ```
 
 ### WebSockets

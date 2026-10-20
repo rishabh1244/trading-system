@@ -3,3 +3,4 @@
 .env.*
 !.env.example
 /tests/loadtest_users.json
+/tests/loadtest_users_small.json

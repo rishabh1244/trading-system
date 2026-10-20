@@ -162,6 +162,53 @@ impl MetricsCollector {
     pub fn snapshot(&self) -> OrderMetricsJson {
         OrderMetricsJson::from(&*self.inner.read().unwrap())
     }
+
+    pub fn prometheus(&self) -> String {
+        let snapshot = self.snapshot();
+        let mut output = String::from(
+            "# HELP trading_engine_stage_count Number of recorded stage timings.\n# TYPE trading_engine_stage_count gauge\n",
+        );
+        let stages = [
+            ("order_total", &snapshot.order_total),
+            ("tx_begin", &snapshot.tx_begin),
+            ("pool_acquire", &snapshot.pool_acquire),
+            ("begin", &snapshot.begin),
+            ("reserve_balance", &snapshot.reserve_balance),
+            ("orderbook_lock", &snapshot.orderbook_lock),
+            ("matching", &snapshot.matching),
+            ("settle_trades", &snapshot.settle_trades),
+            ("tx_commit", &snapshot.tx_commit),
+        ];
+
+        for (name, metric) in stages {
+            output.push_str(&format!(
+                "trading_engine_stage_count{{stage=\"{name}\"}} {}\n",
+                metric.count
+            ));
+        }
+
+        output.push_str(
+            "# HELP trading_engine_stage_avg_duration_milliseconds Average stage duration.\n# TYPE trading_engine_stage_avg_duration_milliseconds gauge\n",
+        );
+        for (name, metric) in stages {
+            output.push_str(&format!(
+                "trading_engine_stage_avg_duration_milliseconds{{stage=\"{name}\"}} {}\n",
+                metric.avg_ms
+            ));
+        }
+
+        output.push_str(
+            "# HELP trading_engine_stage_p95_duration_milliseconds 95th percentile stage duration.\n# TYPE trading_engine_stage_p95_duration_milliseconds gauge\n",
+        );
+        for (name, metric) in stages {
+            output.push_str(&format!(
+                "trading_engine_stage_p95_duration_milliseconds{{stage=\"{name}\"}} {}\n",
+                metric.p95_ms
+            ));
+        }
+
+        output
+    }
 }
 
 #[cfg(test)]

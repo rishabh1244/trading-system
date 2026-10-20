@@ -21,8 +21,4 @@ tokio-tungstenite = "0.26"
 futures-util = "0.3"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-opentelemetry = "0.33"
-opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.33", default-features = false, features = ["grpc-tonic", "trace"] }
-tracing-opentelemetry = "0.34"
 opentelemetry-instrumentation-actix-web = "0.25"

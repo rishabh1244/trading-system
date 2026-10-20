@@ -35,7 +35,7 @@ async fn startup() -> (PgPool, Arc<Mutex<OrderBook>>) {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
-    let tracer_provider = telemetry::init_telemetry();
+    telemetry::init_telemetry();
 
     let market = Arc::new(Mutex::new(MarketData::new()));
     let socket_server = Arc::new(SocketServer::new());
@@ -50,10 +50,6 @@ async fn main() -> std::io::Result<()> {
     });
 
     let result = api::api_gateway(socket_server, market, orderbook, pool, metrics).await;
-
-    if let Err(e) = tracer_provider.shutdown() {
-        eprintln!("failed to shutdown tracer provider: {e}");
-    }
 
     result
 }
