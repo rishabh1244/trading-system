@@ -1,7 +1,7 @@
-use actix_web::{test, web, App};
+use actix_web::{App, test, web};
 use std::sync::Arc;
+use trading_engine::api_gateway::metrics_handler::{get_metrics, get_metrics_json};
 use trading_engine::metrics::MetricsCollector;
-use trading_engine::api_gateway::metrics_handler::get_metrics;
 
 fn test_app() -> App<
     impl actix_web::dev::ServiceFactory<
@@ -16,12 +16,13 @@ fn test_app() -> App<
     App::new()
         .app_data(web::Data::new(collector))
         .service(get_metrics)
+        .service(get_metrics_json)
 }
 
 #[tokio::test]
 async fn metrics_empty_returns_zeros() {
     let app = test::init_service(test_app()).await;
-    let req = test::TestRequest::get().uri("/metrics").to_request();
+    let req = test::TestRequest::get().uri("/metrics/json").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = test::read_body_json(resp).await;
@@ -40,11 +41,12 @@ async fn metrics_with_recorded_data() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(collector))
-            .service(get_metrics),
+            .service(get_metrics)
+            .service(get_metrics_json),
     )
     .await;
 
-    let req = test::TestRequest::get().uri("/metrics").to_request();
+    let req = test::TestRequest::get().uri("/metrics/json").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
